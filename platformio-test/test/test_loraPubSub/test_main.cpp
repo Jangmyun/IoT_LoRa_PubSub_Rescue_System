@@ -1,4 +1,5 @@
 #include <unity.h>
+#include <LoRa.h>        // MockLoRa 정의 (mocks/LoRa.h)
 #include "LoRaPubSub.h"
 
 // ── 글로벌 mock 인스턴스 ──────────────────────────────────
@@ -7,18 +8,18 @@ MockLoRa LoRa;
 
 // ── 헬퍼 ─────────────────────────────────────────────────
 static LoRaPublish make_publish(uint8_t node_id, uint8_t msg_id,
-                                uint8_t topic,
-                                const uint8_t *payload, uint8_t pld_len,
-                                uint8_t ttl = LP_MAX_TTL)
+    uint8_t topic,
+    const uint8_t* payload, uint8_t pld_len,
+    uint8_t ttl = LP_MAX_TTL)
 {
     LoRaPublish pkt{};
     pkt.header.preamble = LP_PREAMBLE;
     pkt.header.msg_type = MSG_PUBLISH;
-    pkt.header.node_id  = node_id;
-    pkt.header.msg_id   = msg_id;
-    pkt.header.ttl      = ttl;
-    pkt.topic           = topic;
-    pkt.pld_len         = pld_len;
+    pkt.header.node_id = node_id;
+    pkt.header.msg_id = msg_id;
+    pkt.header.ttl = ttl;
+    pkt.topic = topic;
+    pkt.pld_len = pld_len;
     if (pld_len && payload) memcpy(pkt.payload, payload, pld_len);
     return pkt;
 }
@@ -27,13 +28,13 @@ static LoRaPublish make_publish(uint8_t node_id, uint8_t msg_id,
 static int         spy_count;
 static LoRaPublish spy_pkt;
 
-static void spy_cb(const LoRaPublish &pkt) {
+static void spy_cb(const LoRaPublish& pkt) {
     spy_count++;
     spy_pkt = pkt;
 }
 
 // ── 픽스처 ───────────────────────────────────────────────
-void setUp()    { _mock_millis = 0; LoRa.reset(); spy_count = 0; }
+void setUp() { _mock_millis = 0; LoRa.reset(); spy_count = 0; }
 void tearDown() {}
 
 // ─────────────────────────────────────────────────────────
@@ -43,18 +44,18 @@ void test_publish_qos0_structure() {
     LoRaPubSub ps(NODE_BUOY_A);
     ps.begin();
 
-    uint8_t p[] = {90};
+    uint8_t p[] = { 90 };
     ps.publish(TOPIC_ALERT, p, 1);
 
     TEST_ASSERT_GREATER_THAN(0, LoRa.tx_len);
 
-    auto *sent = reinterpret_cast<LoRaPublish *>(LoRa.tx_buf);
-    TEST_ASSERT_EQUAL_HEX8(LP_PREAMBLE,  sent->header.preamble);
-    TEST_ASSERT_EQUAL_HEX8(MSG_PUBLISH,  sent->header.msg_type);
-    TEST_ASSERT_EQUAL_HEX8(NODE_BUOY_A,  sent->header.node_id);
-    TEST_ASSERT_EQUAL_HEX8(TOPIC_ALERT,  sent->topic);
-    TEST_ASSERT_EQUAL_UINT8(1,           sent->pld_len);
-    TEST_ASSERT_EQUAL_UINT8(90,          sent->payload[0]);
+    auto* sent = reinterpret_cast<LoRaPublish*>(LoRa.tx_buf);
+    TEST_ASSERT_EQUAL_HEX8(LP_PREAMBLE, sent->header.preamble);
+    TEST_ASSERT_EQUAL_HEX8(MSG_PUBLISH, sent->header.msg_type);
+    TEST_ASSERT_EQUAL_HEX8(NODE_BUOY_A, sent->header.node_id);
+    TEST_ASSERT_EQUAL_HEX8(TOPIC_ALERT, sent->topic);
+    TEST_ASSERT_EQUAL_UINT8(1, sent->pld_len);
+    TEST_ASSERT_EQUAL_UINT8(90, sent->payload[0]);
 }
 
 // 2. TTL 초기값 = LP_MAX_TTL
@@ -62,10 +63,10 @@ void test_publish_ttl_initial_value() {
     LoRaPubSub ps(NODE_BUOY_A);
     ps.begin();
 
-    uint8_t p[] = {1};
+    uint8_t p[] = { 1 };
     ps.publish(TOPIC_HEARTBEAT, p, 1);
 
-    auto *sent = reinterpret_cast<LoRaPublish *>(LoRa.tx_buf);
+    auto* sent = reinterpret_cast<LoRaPublish*>(LoRa.tx_buf);
     TEST_ASSERT_EQUAL_UINT8(LP_MAX_TTL, sent->header.ttl);
 }
 
@@ -74,7 +75,7 @@ void test_publish_packet_length() {
     LoRaPubSub ps(NODE_BUOY_A);
     ps.begin();
 
-    uint8_t p[] = {42};
+    uint8_t p[] = { 42 };
     ps.publish(TOPIC_ALERT, p, 1);
 
     // 5(header) + 1(topic) + 1(pld_len) + 1(payload) + 1(crc8) = 9
@@ -86,13 +87,13 @@ void test_msg_id_increments() {
     LoRaPubSub ps(NODE_BUOY_A);
     ps.begin();
 
-    uint8_t p[] = {1};
+    uint8_t p[] = { 1 };
     ps.publish(TOPIC_HEARTBEAT, p, 1);
-    uint8_t id0 = reinterpret_cast<LoRaPublish *>(LoRa.tx_buf)->header.msg_id;
+    uint8_t id0 = reinterpret_cast<LoRaPublish*>(LoRa.tx_buf)->header.msg_id;
 
     LoRa.reset();
     ps.publish(TOPIC_HEARTBEAT, p, 1);
-    uint8_t id1 = reinterpret_cast<LoRaPublish *>(LoRa.tx_buf)->header.msg_id;
+    uint8_t id1 = reinterpret_cast<LoRaPublish*>(LoRa.tx_buf)->header.msg_id;
 
     TEST_ASSERT_EQUAL_UINT8((uint8_t)(id0 + 1), id1);
 }
@@ -103,9 +104,9 @@ void test_subscribe_exact_topic_fires() {
     ps.begin();
     ps.subscribe(TOPIC_ALERT, spy_cb);
 
-    uint8_t p[] = {80};
+    uint8_t p[] = { 80 };
     LoRaPublish pkt = make_publish(NODE_BUOY_A, 0, TOPIC_ALERT, p, 1);
-    LoRa.injectRx(reinterpret_cast<uint8_t *>(&pkt), sizeof(LoRaPublish));
+    LoRa.injectRx(reinterpret_cast<uint8_t*>(&pkt), sizeof(LoRaPublish));
     ps.tick();
 
     TEST_ASSERT_EQUAL_INT(1, spy_count);
@@ -120,9 +121,9 @@ void test_subscribe_upper_nibble_wildcard() {
     ps.begin();
     ps.subscribe(0x10, spy_cb);  // 카테고리 0x1x 전체
 
-    uint8_t p[] = {0};
+    uint8_t p[] = { 0 };
     LoRaPublish pkt = make_publish(NODE_BUOY_A, 1, TOPIC_ALERT_CLEAR, p, 1);
-    LoRa.injectRx(reinterpret_cast<uint8_t *>(&pkt), sizeof(LoRaPublish));
+    LoRa.injectRx(reinterpret_cast<uint8_t*>(&pkt), sizeof(LoRaPublish));
     ps.tick();
 
     TEST_ASSERT_EQUAL_INT(1, spy_count);
@@ -134,14 +135,14 @@ void test_duplicate_packet_suppressed() {
     ps.begin();
     ps.subscribe(TOPIC_ALERT, spy_cb);
 
-    uint8_t p[] = {70};
+    uint8_t p[] = { 70 };
     LoRaPublish pkt = make_publish(NODE_BUOY_A, 42, TOPIC_ALERT, p, 1);
 
-    LoRa.injectRx(reinterpret_cast<uint8_t *>(&pkt), sizeof(LoRaPublish));
+    LoRa.injectRx(reinterpret_cast<uint8_t*>(&pkt), sizeof(LoRaPublish));
     ps.tick();
     TEST_ASSERT_EQUAL_INT(1, spy_count);
 
-    LoRa.injectRx(reinterpret_cast<uint8_t *>(&pkt), sizeof(LoRaPublish));
+    LoRa.injectRx(reinterpret_cast<uint8_t*>(&pkt), sizeof(LoRaPublish));
     ps.tick();
     TEST_ASSERT_EQUAL_INT(1, spy_count);  // 여전히 1
 }
@@ -152,9 +153,9 @@ void test_self_packet_ignored() {
     ps.begin();
     ps.subscribe(TOPIC_ALERT, spy_cb);
 
-    uint8_t p[] = {60};
+    uint8_t p[] = { 60 };
     LoRaPublish pkt = make_publish(NODE_BUOY_B, 10, TOPIC_ALERT, p, 1);
-    LoRa.injectRx(reinterpret_cast<uint8_t *>(&pkt), sizeof(LoRaPublish));
+    LoRa.injectRx(reinterpret_cast<uint8_t*>(&pkt), sizeof(LoRaPublish));
     ps.tick();
 
     TEST_ASSERT_EQUAL_INT(0, spy_count);
@@ -166,10 +167,10 @@ void test_invalid_preamble_ignored() {
     ps.begin();
     ps.subscribe(TOPIC_ALERT, spy_cb);
 
-    uint8_t p[] = {60};
+    uint8_t p[] = { 60 };
     LoRaPublish pkt = make_publish(NODE_BUOY_A, 20, TOPIC_ALERT, p, 1);
     pkt.header.preamble = 0xFF;
-    LoRa.injectRx(reinterpret_cast<uint8_t *>(&pkt), sizeof(LoRaPublish));
+    LoRa.injectRx(reinterpret_cast<uint8_t*>(&pkt), sizeof(LoRaPublish));
     ps.tick();
 
     TEST_ASSERT_EQUAL_INT(0, spy_count);
@@ -180,17 +181,17 @@ void test_relay_decrements_ttl_and_type() {
     LoRaPubSub ps(NODE_BUOY_B);
     ps.begin();
 
-    uint8_t p[] = {50};
+    uint8_t p[] = { 50 };
     LoRaPublish pkt = make_publish(NODE_BUOY_A, 30, TOPIC_ALERT, p, 1, /*ttl=*/2);
-    LoRa.injectRx(reinterpret_cast<uint8_t *>(&pkt), sizeof(LoRaPublish));
+    LoRa.injectRx(reinterpret_cast<uint8_t*>(&pkt), sizeof(LoRaPublish));
     ps.tick();
 
     TEST_ASSERT_GREATER_THAN(0, LoRa.tx_len);
 
-    auto *relayed = reinterpret_cast<LoRaPublish *>(LoRa.tx_buf);
-    TEST_ASSERT_EQUAL_HEX8(MSG_RELAY,    relayed->header.msg_type);
-    TEST_ASSERT_EQUAL_HEX8(NODE_BUOY_B,  relayed->header.node_id);
-    TEST_ASSERT_EQUAL_UINT8(1,           relayed->header.ttl);      // 2 - 1
+    auto* relayed = reinterpret_cast<LoRaPublish*>(LoRa.tx_buf);
+    TEST_ASSERT_EQUAL_HEX8(MSG_RELAY, relayed->header.msg_type);
+    TEST_ASSERT_EQUAL_HEX8(NODE_BUOY_B, relayed->header.node_id);
+    TEST_ASSERT_EQUAL_UINT8(1, relayed->header.ttl);      // 2 - 1
 }
 
 // 11. TTL=1 이면 릴레이하지 않음
@@ -198,9 +199,9 @@ void test_no_relay_when_ttl_is_one() {
     LoRaPubSub ps(NODE_BUOY_B);
     ps.begin();
 
-    uint8_t p[] = {50};
+    uint8_t p[] = { 50 };
     LoRaPublish pkt = make_publish(NODE_BUOY_A, 31, TOPIC_ALERT, p, 1, /*ttl=*/1);
-    LoRa.injectRx(reinterpret_cast<uint8_t *>(&pkt), sizeof(LoRaPublish));
+    LoRa.injectRx(reinterpret_cast<uint8_t*>(&pkt), sizeof(LoRaPublish));
     ps.tick();
 
     TEST_ASSERT_EQUAL_INT(0, LoRa.tx_len);
@@ -215,11 +216,11 @@ void test_qos1_succeeds_on_ack() {
     LoRaAck ack{};
     ack.header.preamble = LP_PREAMBLE;
     ack.header.msg_type = MSG_ACK;
-    ack.header.node_id  = NODE_PI;
-    ack.ack_msg_id      = 0;
-    LoRa.injectRx(reinterpret_cast<uint8_t *>(&ack), sizeof(LoRaAck));
+    ack.header.node_id = NODE_PI;
+    ack.ack_msg_id = 0;
+    LoRa.injectRx(reinterpret_cast<uint8_t*>(&ack), sizeof(LoRaAck));
 
-    uint8_t p[] = {90};
+    uint8_t p[] = { 90 };
     bool ok = ps.publish(TOPIC_ALERT, p, 1, /*ack_required=*/true);
     TEST_ASSERT_TRUE(ok);
 }
@@ -229,7 +230,7 @@ void test_qos1_fails_on_timeout() {
     LoRaPubSub ps(NODE_BUOY_A);
     ps.begin();
 
-    uint8_t p[] = {90};
+    uint8_t p[] = { 90 };
     bool ok = ps.publish(TOPIC_ALERT, p, 1, /*ack_required=*/true);
     TEST_ASSERT_FALSE(ok);
 }
