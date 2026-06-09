@@ -15,7 +15,7 @@
       "id": "sonar",
       "top": -80,
       "left": 220,
-      "attrs": { "distance": "30" }
+      "attrs": { "distance": "50" }
     },
     {
       "type": "wokwi-mpu6050",
