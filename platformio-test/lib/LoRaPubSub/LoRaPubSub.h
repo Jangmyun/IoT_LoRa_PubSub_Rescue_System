@@ -58,7 +58,7 @@ struct LoRaAck {
 
 #pragma pack(pop)
 
-using LoRaRxCallback = void (*)(const LoRaPublish &pkt);
+using LoRaRxCallback = void (*)(const LoRaPublish& pkt);
 
 class LoRaPubSub {
 public:
@@ -67,8 +67,8 @@ public:
     void begin();
 
     bool publish(uint8_t topic,
-                 const uint8_t *payload, uint8_t pld_len,
-                 bool ack_required = false);
+        const uint8_t* payload, uint8_t pld_len,
+        bool ack_required = false);
 
     void tick();
 
@@ -88,10 +88,10 @@ private:
     uint8_t   _seen_head;
 
     uint8_t  _nextMsgId();
-    uint8_t  _crc8(const uint8_t *data, uint8_t len);
+    uint8_t  _crc8(const uint8_t* data, uint8_t len);
     bool     _alreadySeen(uint8_t node_id, uint8_t msg_id);
     void     _markSeen(uint8_t node_id, uint8_t msg_id);
-    void     _relay(const LoRaPublish &pkt);
-    void     _sendRaw(const uint8_t *buf, uint8_t len);
-    void     _handleIncoming(const LoRaPublish &pkt);
+    void     _relay(const LoRaPublish& pkt);
+    void     _sendRaw(const uint8_t* buf, uint8_t len);
+    void     _handleIncoming(const LoRaPublish& pkt);
 };
