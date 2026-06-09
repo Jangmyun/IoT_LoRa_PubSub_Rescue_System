@@ -15,16 +15,16 @@ build/
 *.a
 
 ### VSCode ###
-.vscode/*
-!.vscode/settings.json
-!.vscode/tasks.json
-!.vscode/launch.json
-!.vscode/extensions.json
-!.vscode/*.code-snippets
+**/.vscode/*
+!**/.vscode/settings.json
+!**/.vscode/tasks.json
+!**/.vscode/launch.json
+!**/.vscode/extensions.json
+!**/.vscode/*.code-snippets
 # arduino.json은 보드·설정 공유를 위해 추적 (port 필드는 커밋 전 비워둘 것)
-!.vscode/arduino.json
+!**/.vscode/arduino.json
 # c_cpp_properties.json은 Arduino 확장이 로컬 경로로 자동 생성하므로 제외
-.vscode/c_cpp_properties.json
+**/.vscode/c_cpp_properties.json
 
 # Local History for Visual Studio Code
 .history/
