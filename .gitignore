@@ -1,0 +1,119 @@
+# Created by https://www.toptal.com/developers/gitignore/api/arduino,vscode,macos,linux,python
+# Edit at https://www.toptal.com/developers/gitignore?templates=arduino,vscode,macos,linux,python
+
+### Arduino ###
+# Arduino build output (arduino.json "output": "build")
+build/
+
+# Compiled binaries & intermediates
+*.bin
+*.elf
+*.hex
+*.map
+*.o
+*.d
+*.a
+
+### VSCode ###
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+!.vscode/*.code-snippets
+# arduino.json은 보드·설정 공유를 위해 추적 (port 필드는 커밋 전 비워둘 것)
+!.vscode/arduino.json
+# c_cpp_properties.json은 Arduino 확장이 로컬 경로로 자동 생성하므로 제외
+.vscode/c_cpp_properties.json
+
+# Local History for Visual Studio Code
+.history/
+
+# Built Visual Studio Code Extensions
+*.vsix
+
+### macOS ###
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+### Linux ###
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+### Python (Raspberry Pi 수신국) ###
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# 배포·패키징
+dist/
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+sdist/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# 가상 환경
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# 테스트·커버리지
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# 로그
+*.log
+pip-log.txt
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv / pipenv
+.python-version
+Pipfile.lock
+
+# mypy / pyre
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+
+# End of https://www.toptal.com/developers/gitignore/api/arduino,vscode,macos,linux,python
