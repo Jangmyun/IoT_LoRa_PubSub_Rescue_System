@@ -1,4 +1,2 @@
-// native 환경 pio run 진입점 — 실제 실행용 코드 없음
-#if defined(NATIVE) || defined(UNIX_HOST_DUINO)
+// native 환경 pio run 진입점 — build_src_filter로 native에서만 포함됨
 int main() { return 0; }
-#endif
