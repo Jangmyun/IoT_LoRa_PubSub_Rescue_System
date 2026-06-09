@@ -39,8 +39,11 @@ void onAlert(const LoRaPublish& pkt) {
 
 void setup() {
     Serial.begin(115200);
-    Serial.println("[BOOT] starting...");  // 부팅 확인용 최초 출력
+    delay(1000);                           // Wokwi 터미널 연결 대기
+    Serial.println("[BOOT] starting...");
+    Serial.flush();                        // 버퍼 강제 출력
 
+    // Serial 확인 후 LoRa 초기화
     SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS);
     LoRa.setPins(LORA_SS, LORA_RST, LORA_DI0);
 
