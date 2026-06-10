@@ -6,6 +6,7 @@ Serial reader for the LoRa-to-USB bridge connected at /dev/ttyACM0.
   2. 다음 바이트(msg_type) 로 패킷 종류 결정
   3. 해당 패킷 크기만큼 나머지 바이트 읽기
   4. CRC 검증 → 실패 시 폐기, 재스캔
+  5. 패킷 직후 3바이트(RSSI int16 LE + SNR int8) 를 항상 소비
 
 직렬 읽기는 스레드에서 블로킹으로 수행하고,
 패킷이 완성되면 asyncio.run_coroutine_threadsafe 로 on_packet 콜백 호출.
@@ -14,6 +15,8 @@ Serial reader for the LoRa-to-USB bridge connected at /dev/ttyACM0.
 
 import asyncio
 import logging
+import struct
+import threading
 from typing import Awaitable, Callable
 
 import serial
@@ -31,6 +34,10 @@ logger = logging.getLogger(__name__)
 SERIAL_PORT     = "/dev/ttyACM0"
 BAUD_RATE       = 115200
 RECONNECT_DELAY = 3.0   # seconds
+
+# gateway_main.cpp 가 LoRaPublish 직후에 붙이는 메타데이터 포맷
+_META_FMT  = "<hb"                    # int16 LE (rssi) + int8 (snr*4)
+_META_SIZE = struct.calcsize(_META_FMT)  # 3 bytes
 
 PacketCallback = Callable[[LoRaPublish | LoRaAck], Awaitable[None]]
 
@@ -58,11 +65,15 @@ async def serial_read_loop(
 ) -> None:
     """영구 루프: 시리얼 열기 → 패킷 수신 → on_packet 호출 → 오류 시 재연결."""
     loop = asyncio.get_running_loop()
+    stop_flag = threading.Event()
     while True:
         try:
             await loop.run_in_executor(
-                None, _blocking_loop, port, baud, on_packet, loop
+                None, _blocking_loop, port, baud, on_packet, loop, stop_flag
             )
+        except asyncio.CancelledError:
+            stop_flag.set()   # 블로킹 스레드에 종료 신호
+            raise
         except Exception as exc:
             logger.error("serial error: %s — retry in %.1fs", exc, RECONNECT_DELAY)
             await asyncio.sleep(RECONNECT_DELAY)
@@ -75,10 +86,11 @@ def _blocking_loop(
     baud: int,
     on_packet: PacketCallback,
     loop: asyncio.AbstractEventLoop,
+    stop_flag: threading.Event,
 ) -> None:
     with serial.Serial(port, baud, timeout=1) as ser:
         logger.info("serial opened: %s @ %d baud", port, baud)
-        while True:
+        while not stop_flag.is_set():
             pkt = _read_one_packet(ser)
             if pkt is not None:
                 asyncio.run_coroutine_threadsafe(on_packet(pkt), loop)
@@ -128,6 +140,11 @@ def _read_publish(ser: serial.Serial, buf: bytes) -> LoRaPublish | None:
         logger.debug("publish body timeout")
         return None
     buf += body
+
+    # gateway_main.cpp 가 LoRaPublish 직후에 RSSI/SNR 3바이트를 전송한다.
+    # 검증 결과와 무관하게 항상 소비해야 다음 패킷 정렬이 유지된다.
+    meta = ser.read(_META_SIZE)
+
     try:
         pkt = LoRaPublish.unpack(buf)
     except ValueError as exc:
@@ -136,11 +153,17 @@ def _read_publish(ser: serial.Serial, buf: bytes) -> LoRaPublish | None:
     if not pkt.verify_crc():
         logger.warning("publish CRC mismatch raw=%s", buf.hex())
         return None
+
+    if len(meta) == _META_SIZE:
+        rssi, snr_x4 = struct.unpack(_META_FMT, meta)
+        pkt.rssi = rssi
+        pkt.snr  = snr_x4 / 4.0
+
     logger.info(
-        "RX PUBLISH  node=%d msg=%d topic=0x%02x payload=%s ttl=%d",
+        "RX PUBLISH  node=%d msg=%d topic=0x%02x payload=%s rssi=%s ttl=%d",
         pkt.header.node_id, pkt.header.msg_id,
         pkt.topic, pkt.valid_payload.hex(),
-        pkt.header.ttl,
+        pkt.rssi, pkt.header.ttl,
     )
     return pkt
 
