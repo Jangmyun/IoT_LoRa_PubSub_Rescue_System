@@ -51,7 +51,7 @@ void setup() {
     if (lora_ok) {
         pubsub.begin();
         pubsub.subscribe(TOPIC_ALERT, onAlert);
-        Serial.println("[OK] LoRa ready");
+        Serial.println("[OK] LoRa ready (frequency=923 MHz)");
     } else {
         // Wokwi 시뮬레이션: SX1276 칩 없음 → 센서 전용 모드로 동작
         Serial.println("[WARN] LoRa not found — sensor-only mode (Wokwi?)");
@@ -59,10 +59,18 @@ void setup() {
 
     sensors.attach(&sonar);
     sensors.attach(&imu);
-    sensors.beginAll();
+    uint8_t sensors_ready = sensors.beginAll();
 
-    Serial.printf("[OK] sensors: %d attached\n", sensors.count());
-    Serial.printf("     LoRaPublish max: %d bytes\n", sizeof(LoRaPublish));
+    Serial.printf("[INFO] sensors configured: %d software objects\n", sensors.count());
+    Serial.printf("[INFO] sensors startup checks passed: %d/%d\n",
+                  sensors_ready, sensors.count());
+    Serial.println(sensors.isReady(0)
+        ? "[OK] Sonar pins configured (TRIG=GPIO13, ECHO=GPIO12; distance validates on read)"
+        : "[WARN] Sonar pin setup failed");
+    Serial.println(sensors.isReady(1)
+        ? "[OK] IMU detected on I2C (MPU6050, SDA=GPIO21, SCL=GPIO22)"
+        : "[WARN] IMU not detected on I2C (MPU6050, SDA=GPIO21, SCL=GPIO22); skipping IMU reads");
+    Serial.printf("[INFO] LoRaPublish max: %d bytes\n", sizeof(LoRaPublish));
 }
 
 void loop() {
@@ -71,9 +79,14 @@ void loop() {
     // 3초마다 센서 읽기
     static uint32_t last_sensor = 0;
     if (millis() - last_sensor > 3000) {
-        sensors.readAll();
-        Serial.printf("[SENSOR] sonar=%.1f cm  |  accel=%.2f m/s2\n",
-                      sonar.getValue(), imu.getValue());
+        uint8_t reads_ok = sensors.readAll();
+        if (sensors.isReady(1)) {
+            Serial.printf("[SENSOR] reads ok=%d/%d | sonar=%.1f cm | accel=%.2f m/s2\n",
+                          reads_ok, sensors.readyCount(), sonar.getValue(), imu.getValue());
+        } else {
+            Serial.printf("[SENSOR] reads ok=%d/%d | sonar=%.1f cm | accel=N/A (IMU not detected)\n",
+                          reads_ok, sensors.readyCount(), sonar.getValue());
+        }
         if (lora_ok) sensors.publishRaw(pubsub);
         last_sensor = millis();
     }
