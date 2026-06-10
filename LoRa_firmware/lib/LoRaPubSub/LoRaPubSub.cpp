@@ -12,6 +12,7 @@ LoRaPubSub::LoRaPubSub(uint8_t node_id)
 
 void LoRaPubSub::begin() {
     // LoRa.begin()은 main.cpp에서 먼저 호출
+    LoRa.setSyncWord(0xAB);   // 모든 노드·게이트웨이 동일 값으로 고정
     LoRa.receive();
 }
 
