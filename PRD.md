@@ -158,21 +158,21 @@
 
 ### Week 1 — 하드웨어 및 기초 통신
 
-- TTGO LoRa32 셋업, 개발 환경 구성
-- JSN-SR04T, GY-521 센서 연결 및 값 읽기 확인
-- LoRa 단방향 패킷 송수신 기본 동작 확인
+- [x] TTGO LoRa32 셋업, 개발 환경 구성 (PlatformIO)
+- [ ] JSN-SR04T, GY-521 센서 연결 및 값 읽기 확인
+- [x] LoRa 단방향 패킷 송수신 기본 동작 확인
 
 ### Week 2 — 프로토콜 및 수신국
 
-- LoRa 경량 pub/sub 패킷 포맷 설계 및 구현
-- 멀티홉 릴레이 (TTL, 중복 억제) 구현
-- Raspberry Pi 수신국 + 브로커 + WebSocket 대시보드 구축
+- [x] LoRa 경량 pub/sub 패킷 포맷 설계 및 구현 (`lib/LoRaPubSub`)
+- [x] 멀티홉 릴레이 (TTL, 중복 억제) 구현
+- [ ] Raspberry Pi 수신국 + 브로커 + WebSocket 대시보드 구축
 
 ### Week 3 — 탐지 알고리즘 및 통합
 
-- 센서 퓨전 기반 익수자 판정 로직 (FFT + 분산 임계값)
-- 전력 관리(이벤트 기반 송신) 적용
-- 방수 처리, 통합 테스트, 수조 시연 시나리오 준비
+- [ ] 센서 퓨전 기반 익수자 판정 로직 (FFT + 분산 임계값)
+- [ ] 전력 관리(이벤트 기반 송신) 적용
+- [ ] 방수 처리, 통합 테스트, 수조 시연 시나리오 준비
 
 ---
 
@@ -184,6 +184,46 @@
 4. **경보 전파** — LoRa pub/sub PUBLISH → 멀티홉 릴레이 → 수신국 경보 표시
 5. **(확장) 위치 추정** — 부표별 타임스탬프 차이로 추정 위치 표시
 6. **마무리 & Q&A** — 직접 설계한 요소 정리, 한계 및 개선점 제시
+
+---
+
+## 13. 현재 구현 현황 (as of 2026-06-10)
+
+### 완료
+
+| 항목 | 파일 | 비고 |
+|------|------|------|
+| PlatformIO 프로젝트 구성 | `LoRa_firmware/platformio.ini` | TTGO LoRa32 + native 테스트 환경 |
+| LoRaPubSub 라이브러리 | `lib/LoRaPubSub/` | 헤더 + 구현 분리, PlatformIO 라이브러리 형식 |
+| 패킷 포맷 설계 | `LoRaPubSub.h` | 아래 설계 변경 사항 참고 |
+| PUBLISH / ACK / RELAY 송수신 | `LoRaPubSub.cpp` | QoS 0 (fire-and-forget), QoS 1 (ACK 대기) |
+| TTL 기반 멀티홉 릴레이 | `LoRaPubSub.cpp` | TTL 감소, MSG_RELAY 전환 |
+| 중복 패킷 억제 | `LoRaPubSub.cpp` | {node_id, msg_id} 링버퍼 (16 슬롯) |
+| 토픽 와일드카드 구독 | `LoRaPubSub.cpp` | 상위 니블 일치 시 카테고리 전체 수신 |
+| Mock 기반 유닛테스트 (13개) | `test/test_loraPubSub/` | native 환경, 하드웨어 불필요 |
+
+### 설계 변경 사항 (PRD FR-2.2 대비)
+
+PRD의 원안 `[version | type | topic_len | topic | payload_len | payload | crc]` 대신 아래 구조로 확정하였다.
+
+```
+[preamble(1) | msg_type(1) | node_id(1) | msg_id(1) | ttl(1) | topic(1) | pld_len(1) | payload(≤3) | crc8(1)]
+최대 11바이트 — 64바이트 FIFO 제약을 크게 여유 있게 만족
+```
+
+- **version 제거**: 단일 버전 운용, 바이트 절약
+- **topic 고정 1바이트**: 토픽 공간이 256개로 충분하며 topic_len 필드 불필요
+- **node_id + msg_id 추가**: 브로커 없는 환경에서 중복 억제와 ACK 매칭에 필수
+- **preamble 추가 (0xAB)**: LoRa 수신 시 노이즈 패킷 1차 필터링
+
+### 미완료 (이후 작업)
+
+- JSN-SR04T 초음파 센서 드라이버 및 수면 교란 감지 로직
+- GY-521 가속도 센서 드라이버 및 파도 오탐 보정 로직
+- 센서 퓨전 익수자 판정 알고리즘 (분산 임계값)
+- Raspberry Pi 수신국: LoRa 수신 → MQTT/WebSocket 브리지
+- 실시간 대시보드 (WebSocket 클라이언트)
+- 전력 관리 (이벤트 기반 송신, Deep Sleep)
 
 ---
 
