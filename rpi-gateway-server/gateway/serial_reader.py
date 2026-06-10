@@ -34,6 +34,20 @@ RECONNECT_DELAY = 3.0   # seconds
 
 PacketCallback = Callable[[LoRaPublish | LoRaAck], Awaitable[None]]
 
+# ASCII 라인 누적 버퍼 (펌웨어 텍스트 출력 감지용)
+_ascii_buf: list[int] = []
+
+def _log_ascii_byte(byte: int) -> None:
+    """수신 바이트가 ASCII 텍스트일 때 라인 단위로 DEBUG 로그 출력."""
+    if byte in (0x0A, 0x0D):
+        if _ascii_buf:
+            line = bytes(_ascii_buf).decode("ascii", errors="replace").strip()
+            if line:
+                logger.debug("[serial ASCII] %s", line)
+            _ascii_buf.clear()
+    else:
+        _ascii_buf.append(byte)
+
 
 # ── Public entry point ─────────────────────────────────────────────
 
@@ -77,7 +91,14 @@ def _read_one_packet(ser: serial.Serial) -> LoRaPublish | LoRaAck | None:
     """
     # 1. preamble 스캔
     b = ser.read(1)
-    if not b or b[0] != LP_PREAMBLE:
+    if not b:
+        return None
+    if b[0] != LP_PREAMBLE:
+        # ASCII 가시 문자면 텍스트 라인으로 누적해서 출력 (펌웨어 디버그 출력 감지용)
+        if 0x20 <= b[0] <= 0x7E or b[0] in (0x0A, 0x0D):
+            _log_ascii_byte(b[0])
+        else:
+            logger.debug("non-preamble byte: 0x%02x", b[0])
         return None
 
     # 2. 나머지 헤더 4바이트 (msg_type | node_id | msg_id | ttl)
