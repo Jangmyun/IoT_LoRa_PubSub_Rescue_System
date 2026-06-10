@@ -20,6 +20,7 @@ bool LoRaPubSub::publish(uint8_t topic,
     const uint8_t* payload, uint8_t pld_len,
     bool ack_required)
 {
+    if (payload == nullptr) pld_len = 0;
     if (pld_len > LP_MAX_PAYLOAD) pld_len = LP_MAX_PAYLOAD;
 
     LoRaPublish pkt{};
@@ -30,21 +31,15 @@ bool LoRaPubSub::publish(uint8_t topic,
     pkt.header.ttl = LP_MAX_TTL;
     pkt.topic = topic;
     pkt.pld_len = pld_len;
-    memcpy(pkt.payload, payload, pld_len);
+    if (pld_len > 0) memcpy(pkt.payload, payload, pld_len);
 
-    // CRC8 범위: 헤더(5B) + topic(1B) + pld_len(1B) + payload(pld_len)
-    uint8_t crc_len = sizeof(LoRaHeader) + 2 + pld_len;
-    pkt.crc8 = _crc8(reinterpret_cast<uint8_t*>(&pkt), crc_len);
-
-    // 항상 sizeof(LoRaPublish) 바이트 전송 — crc_len+1 사용 시 pld_len < LP_MAX_PAYLOAD이면
-    // pkt.crc8(offset 10)이 전송 범위 밖으로 나가 CRC 바이트가 누락됨
     if (!ack_required) {
-        _sendRaw(reinterpret_cast<uint8_t*>(&pkt), sizeof(LoRaPublish));
+        _sendPublish(pkt);
         return true;
     }
 
     for (uint8_t attempt = 0; attempt < LP_MAX_RETRIES; attempt++) {
-        _sendRaw(reinterpret_cast<uint8_t*>(&pkt), sizeof(LoRaPublish));
+        _sendPublish(pkt);
         uint32_t deadline = millis() + 800;
         while (millis() < deadline) {
             int size = LoRa.parsePacket();
@@ -105,10 +100,24 @@ void LoRaPubSub::_relay(const LoRaPublish& pkt) {
     relay.header.msg_type = MSG_RELAY;
     relay.header.node_id = _node_id;
     relay.header.ttl--;
+    _sendPublish(relay);
+}
 
-    uint8_t crc_len = sizeof(LoRaHeader) + 2 + relay.pld_len;
-    relay.crc8 = _crc8(reinterpret_cast<uint8_t*>(&relay), crc_len);
-    _sendRaw(reinterpret_cast<uint8_t*>(&relay), sizeof(LoRaPublish));
+void LoRaPubSub::_sendPublish(LoRaPublish& pkt) {
+    if (pkt.pld_len > LP_MAX_PAYLOAD) pkt.pld_len = LP_MAX_PAYLOAD;
+
+    constexpr uint8_t header_len = sizeof(LoRaHeader);
+    uint8_t crc_offset = header_len + 2 + pkt.pld_len;
+    uint8_t wire[sizeof(LoRaPublish)] = {};
+
+    memcpy(wire, &pkt.header, header_len);
+    wire[header_len]     = pkt.topic;
+    wire[header_len + 1] = pkt.pld_len;
+    if (pkt.pld_len > 0) memcpy(wire + header_len + 2, pkt.payload, pkt.pld_len);
+
+    pkt.crc8 = _crc8(wire, crc_offset);
+    wire[crc_offset] = pkt.crc8;
+    _sendRaw(wire, crc_offset + 1);
 }
 
 void LoRaPubSub::_sendRaw(const uint8_t* buf, uint8_t len) {
