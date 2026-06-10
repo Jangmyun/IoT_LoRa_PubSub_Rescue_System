@@ -1,6 +1,7 @@
 #include <unity.h>
 #include <LoRa.h>        // MockLoRa 정의 (mocks/LoRa.h)
 #include "LoRaPubSub.h"
+#include "SensorManager.h"
 
 // ── 글로벌 mock 인스턴스 ──────────────────────────────────
 uint32_t _mock_millis = 0;
@@ -235,6 +236,83 @@ void test_qos1_fails_on_timeout() {
     TEST_ASSERT_FALSE(ok);
 }
 
+class FakeSensor : public ISensor {
+public:
+    FakeSensor(bool begin_result, bool read_result, uint8_t packed)
+        : begin_result(begin_result), read_result(read_result), packed(packed) {}
+
+    bool begin() override {
+        begin_calls++;
+        return begin_result;
+    }
+
+    bool read() override {
+        read_calls++;
+        return read_result;
+    }
+
+    float getValue() override { return 0.0f; }
+    uint8_t getPacked() override { return packed; }
+
+    bool begin_result;
+    bool read_result;
+    uint8_t packed;
+    int begin_calls = 0;
+    int read_calls = 0;
+};
+
+void test_sensor_manager_tracks_ready_state() {
+    SensorManager manager;
+    FakeSensor ready(true, true, 10);
+    FakeSensor missing(false, true, 20);
+
+    manager.attach(&ready);
+    manager.attach(&missing);
+    manager.attach(nullptr);
+
+    TEST_ASSERT_EQUAL_UINT8(2, manager.count());
+    TEST_ASSERT_EQUAL_UINT8(1, manager.beginAll());
+    TEST_ASSERT_EQUAL_UINT8(1, manager.readyCount());
+    TEST_ASSERT_TRUE(manager.isReady(0));
+    TEST_ASSERT_FALSE(manager.isReady(1));
+    TEST_ASSERT_FALSE(manager.isReady(2));
+    TEST_ASSERT_EQUAL_INT(1, ready.begin_calls);
+    TEST_ASSERT_EQUAL_INT(1, missing.begin_calls);
+}
+
+void test_sensor_manager_skips_not_ready_reads() {
+    SensorManager manager;
+    FakeSensor ready(true, true, 10);
+    FakeSensor missing(false, true, 20);
+
+    manager.attach(&ready);
+    manager.attach(&missing);
+    manager.beginAll();
+
+    TEST_ASSERT_EQUAL_UINT8(1, manager.readAll());
+    TEST_ASSERT_EQUAL_INT(1, ready.read_calls);
+    TEST_ASSERT_EQUAL_INT(0, missing.read_calls);
+}
+
+void test_sensor_manager_publish_raw_only_ready_sensors() {
+    SensorManager manager;
+    FakeSensor missing(false, true, 99);
+    FakeSensor ready(true, true, 42);
+    LoRaPubSub ps(NODE_BUOY_A);
+
+    ps.begin();
+    manager.attach(&missing);
+    manager.attach(&ready);
+    manager.beginAll();
+    manager.publishRaw(ps);
+
+    TEST_ASSERT_GREATER_THAN(0, LoRa.tx_len);
+    auto* sent = reinterpret_cast<LoRaPublish*>(LoRa.tx_buf);
+    TEST_ASSERT_EQUAL_HEX8(TOPIC_SENSOR_RAW, sent->topic);
+    TEST_ASSERT_EQUAL_UINT8(1, sent->pld_len);
+    TEST_ASSERT_EQUAL_UINT8(42, sent->payload[0]);
+}
+
 // ─────────────────────────────────────────────────────────
 int main() {
     UNITY_BEGIN();
@@ -252,6 +330,9 @@ int main() {
     RUN_TEST(test_no_relay_when_ttl_is_one);
     RUN_TEST(test_qos1_succeeds_on_ack);
     RUN_TEST(test_qos1_fails_on_timeout);
+    RUN_TEST(test_sensor_manager_tracks_ready_state);
+    RUN_TEST(test_sensor_manager_skips_not_ready_reads);
+    RUN_TEST(test_sensor_manager_publish_raw_only_ready_sensors);
 
     return UNITY_END();
 }
