@@ -21,10 +21,15 @@ logger = logging.getLogger(__name__)
 Callback = Callable[[LoRaPublish], Awaitable[None]]
 
 
+_SEEN_MAX = 512  # 노드당 msg_id가 0~255 순환이므로 넉넉히 설정
+
+
 class Broker:
     def __init__(self) -> None:
         # topic=None は catch-all (모든 LoRaPublish 수신)
         self._subs: list[tuple[int | None, Callback]] = []
+        # (node_id, msg_id) 중복 억제 — 직접 수신 + 릴레이 수신이 동시에 도달할 때 방지
+        self._seen: dict[tuple[int, int], None] = {}
 
     def subscribe(self, topic: int, callback: Callback) -> None:
         self._subs.append((topic, callback))
@@ -38,6 +43,13 @@ class Broker:
     async def dispatch(self, pkt: LoRaPublish | LoRaAck) -> None:
         if not isinstance(pkt, LoRaPublish):
             return
+        key = (pkt.header.node_id, pkt.header.msg_id)
+        if key in self._seen:
+            logger.debug("duplicate suppressed node=%d msg=%d", *key)
+            return
+        self._seen[key] = None
+        if len(self._seen) > _SEEN_MAX:
+            del self._seen[next(iter(self._seen))]
         for sub_topic, cb in self._subs:
             if self._matches(sub_topic, pkt.topic):
                 try:

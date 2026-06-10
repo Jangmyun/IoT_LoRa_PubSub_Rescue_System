@@ -259,7 +259,8 @@ void test_relay_decrements_ttl_and_type() {
 
     auto* relayed = reinterpret_cast<LoRaPublish*>(LoRa.tx_buf);
     TEST_ASSERT_EQUAL_HEX8(MSG_RELAY, relayed->header.msg_type);
-    TEST_ASSERT_EQUAL_HEX8(NODE_BUOY_B, relayed->header.node_id);
+    // 릴레이는 원본 발신자 node_id(A)를 그대로 보존해야 한다
+    TEST_ASSERT_EQUAL_HEX8(NODE_BUOY_A, relayed->header.node_id);
     TEST_ASSERT_EQUAL_UINT8(1, relayed->header.ttl);      // 2 - 1
     assert_compact_publish_crc(1);
 }

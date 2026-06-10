@@ -98,7 +98,7 @@ void LoRaPubSub::_handleIncoming(const LoRaPublish& pkt) {
 void LoRaPubSub::_relay(const LoRaPublish& pkt) {
     LoRaPublish relay = pkt;
     relay.header.msg_type = MSG_RELAY;
-    relay.header.node_id = _node_id;
+    // node_id는 원본 발신자 ID 그대로 유지 — 변경 시 게이트웨이가 릴레이어 노드 데이터로 오인함
     relay.header.ttl--;
     _sendPublish(relay);
 }
