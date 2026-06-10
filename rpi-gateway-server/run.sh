@@ -2,9 +2,14 @@
 # run.sh — server + gateway 동시 기동 및 일괄 종료
 #
 # 사용법:
-#   chmod +x run.sh && ./run.sh
+#   ./run.sh [--log-level LEVEL]
+#   ./run.sh -l debug
 #
-# 환경 변수:
+# 옵션:
+#   -l, --log-level   로그 레벨: DEBUG | INFO | WARNING | ERROR  (기본: INFO)
+#   -h, --help        도움말 출력
+#
+# 환경 변수 (옵션보다 낮은 우선순위):
 #   SERIAL_PORT   (기본: /dev/ttyACM0)
 #   BAUD_RATE     (기본: 115200)
 #   SERVER_HOST   (기본: 0.0.0.0)
@@ -19,6 +24,24 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# ── 인자 파싱 ─────────────────────────────────────────────────────
+_ARG_LOG_LEVEL=""
+
+usage() {
+    echo "usage: ./run.sh [-l|--log-level DEBUG|INFO|WARNING|ERROR] [-h|--help]"
+    exit 0
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -l|--log-level)
+            _ARG_LOG_LEVEL="${2^^}"   # 대문자 정규화
+            shift 2 ;;
+        -h|--help) usage ;;
+        *) echo "[run.sh] unknown option: $1" >&2; usage ;;
+    esac
+done
 
 # ── venv 확인 ─────────────────────────────────────────────────────
 VENV_DIR="$SCRIPT_DIR/.venv"
@@ -35,6 +58,9 @@ source "$VENV_DIR/bin/activate"
 : "${SERVER_PORT:=8000}"
 : "${LOG_LEVEL:=INFO}"
 : "${MOCK_DATA:=0}"
+
+# 커맨드라인 옵션이 환경 변수보다 우선
+[[ -n "$_ARG_LOG_LEVEL" ]] && LOG_LEVEL="$_ARG_LOG_LEVEL"
 
 export SERIAL_PORT BAUD_RATE LOG_LEVEL MOCK_DATA
 export SERVER_URL="http://localhost:${SERVER_PORT}"
