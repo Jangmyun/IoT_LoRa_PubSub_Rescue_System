@@ -50,6 +50,12 @@ async def root():
 
 
 # --- Packet ingestion (called by gateway) ---
+
+# Topic constants (mirrors LoRaPubSub.h)
+_TOPIC_ALERT       = 0x10
+_TOPIC_ALERT_CLEAR = 0x11
+
+
 class LoRaPacket(BaseModel):
     node_id: int
     msg_id: int
@@ -61,13 +67,23 @@ class LoRaPacket(BaseModel):
     snr: Optional[float] = None
 
 
+def _resolve_status(packet: "LoRaPacket", prev_status: str) -> str:
+    if packet.topic == _TOPIC_ALERT:
+        return "ALERT"
+    if packet.topic == _TOPIC_ALERT_CLEAR:
+        return "NORMAL"
+    # HEARTBEAT / SENSOR_RAW 등 — 기존 경보 상태 유지
+    return prev_status
+
+
 @app.post("/api/packet")
 async def receive_packet(packet: LoRaPacket):
-    is_alert = packet.msg_type == "PUBLISH"
+    prev = buoy_states.get(packet.node_id, {})
+    status = _resolve_status(packet, prev.get("status", "NORMAL"))
 
     buoy_states[packet.node_id] = {
         "node_id": packet.node_id,
-        "status": "ALERT" if is_alert else "NORMAL",
+        "status": status,
         "last_seen": datetime.now().isoformat(timespec="seconds"),
         "msg_type": packet.msg_type,
         "topic": packet.topic,

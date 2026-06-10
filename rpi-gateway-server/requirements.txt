@@ -2,3 +2,4 @@ pyserial
 fastapi
 uvicorn
 websockets
+httpx
