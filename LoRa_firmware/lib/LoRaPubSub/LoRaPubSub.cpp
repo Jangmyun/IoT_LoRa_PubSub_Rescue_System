@@ -86,26 +86,6 @@ void LoRaPubSub::tick() {
 
     if (pkt.header.msg_type == MSG_PUBLISH ||
         pkt.header.msg_type == MSG_RELAY) {
-
-        // pld_len < LP_MAX_PAYLOAD 이면 CRC 바이트가 payload 배열 안에
-        // 끼어들어 있으므로 올바른 위치(pkt.crc8)로 이동하고 남은 바이트 클리어
-        if (pkt.pld_len < LP_MAX_PAYLOAD) {
-            uint8_t* raw      = reinterpret_cast<uint8_t*>(&pkt);
-            uint8_t  crc_off  = sizeof(LoRaHeader) + 2 + pkt.pld_len;
-            pkt.crc8          = raw[crc_off];
-            for (uint8_t i = pkt.pld_len; i < LP_MAX_PAYLOAD; i++)
-                pkt.payload[i] = 0;
-        }
-
-        // RPI 게이트웨이용 바이너리 시리얼 출력
-        // 포맷: LoRaPublish(11B) + rssi int16 LE(2B) + snr_x4 int8(1B)
-        Serial.write(reinterpret_cast<const uint8_t*>(&pkt), sizeof(LoRaPublish));
-        int16_t rssi   = (int16_t)LoRa.packetRssi();
-        int8_t  snr_x4 = (int8_t)(LoRa.packetSnr() * 4.0f);
-        Serial.write(reinterpret_cast<uint8_t*>(&rssi),   sizeof(rssi));
-        Serial.write(reinterpret_cast<uint8_t*>(&snr_x4), sizeof(snr_x4));
-        Serial.flush();
-
         _handleIncoming(pkt);
         if (pkt.header.ttl > 1) _relay(pkt);
     }
