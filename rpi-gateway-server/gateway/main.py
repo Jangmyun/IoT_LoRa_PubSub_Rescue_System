@@ -51,6 +51,8 @@ async def run() -> None:
             "topic":    pkt.topic,
             "ttl":      pkt.header.ttl,
             "payload":  list(pkt.valid_payload),
+            "rssi":     pkt.rssi,
+            "snr":      pkt.snr,
         }
         try:
             r = await client.post("/api/packet", json=body)

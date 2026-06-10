@@ -12,7 +12,7 @@ CRC-8 scope:
 """
 
 import struct
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import IntEnum
 
 # ── Protocol constants ─────────────────────────────────────────────
@@ -91,6 +91,9 @@ class LoRaPublish:
     pld_len:  int
     payload:  bytes    # exactly LP_MAX_PAYLOAD (3) bytes, zero-padded
     crc8_val: int
+    # ── 수신 메타데이터 (wire format 외부, serial_reader 가 채움) ──
+    rssi: int | None   = field(default=None, compare=False)
+    snr:  float | None = field(default=None, compare=False)
 
     _FMT = "<BBBBBBBBBBB"
     SIZE: int = struct.calcsize(_FMT)  # 11
@@ -147,6 +150,9 @@ class LoRaAck:
     header:     LoRaHeader
     ack_msg_id: int
     crc8_val:   int
+    # ── 수신 메타데이터 (wire format 외부, serial_reader 가 채움) ──
+    rssi: int | None   = field(default=None, compare=False)
+    snr:  float | None = field(default=None, compare=False)
 
     _FMT = "<BBBBBBB"
     SIZE: int = struct.calcsize(_FMT)  # 7
