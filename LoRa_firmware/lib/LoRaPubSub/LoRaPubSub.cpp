@@ -36,15 +36,15 @@ bool LoRaPubSub::publish(uint8_t topic,
     uint8_t crc_len = sizeof(LoRaHeader) + 2 + pld_len;
     pkt.crc8 = _crc8(reinterpret_cast<uint8_t*>(&pkt), crc_len);
 
-    uint8_t total_len = crc_len + 1;
-
+    // 항상 sizeof(LoRaPublish) 바이트 전송 — crc_len+1 사용 시 pld_len < LP_MAX_PAYLOAD이면
+    // pkt.crc8(offset 10)이 전송 범위 밖으로 나가 CRC 바이트가 누락됨
     if (!ack_required) {
-        _sendRaw(reinterpret_cast<uint8_t*>(&pkt), total_len);
+        _sendRaw(reinterpret_cast<uint8_t*>(&pkt), sizeof(LoRaPublish));
         return true;
     }
 
     for (uint8_t attempt = 0; attempt < LP_MAX_RETRIES; attempt++) {
-        _sendRaw(reinterpret_cast<uint8_t*>(&pkt), total_len);
+        _sendRaw(reinterpret_cast<uint8_t*>(&pkt), sizeof(LoRaPublish));
         uint32_t deadline = millis() + 800;
         while (millis() < deadline) {
             int size = LoRa.parsePacket();
@@ -108,7 +108,7 @@ void LoRaPubSub::_relay(const LoRaPublish& pkt) {
 
     uint8_t crc_len = sizeof(LoRaHeader) + 2 + relay.pld_len;
     relay.crc8 = _crc8(reinterpret_cast<uint8_t*>(&relay), crc_len);
-    _sendRaw(reinterpret_cast<uint8_t*>(&relay), crc_len + 1);
+    _sendRaw(reinterpret_cast<uint8_t*>(&relay), sizeof(LoRaPublish));
 }
 
 void LoRaPubSub::_sendRaw(const uint8_t* buf, uint8_t len) {

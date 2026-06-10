@@ -45,16 +45,6 @@ void loop() {
 
     if (pkt.header.preamble != LP_PREAMBLE) return;
 
-    // pld_len < LP_MAX_PAYLOAD 이면 CRC 바이트가 payload 배열 안에
-    // 끼어들어 있으므로 올바른 위치(pkt.crc8)로 이동하고 남은 바이트 클리어
-    if (pkt.pld_len < LP_MAX_PAYLOAD) {
-        uint8_t* raw     = reinterpret_cast<uint8_t*>(&pkt);
-        uint8_t  crc_off = sizeof(LoRaHeader) + 2 + pkt.pld_len;
-        pkt.crc8         = raw[crc_off];
-        for (uint8_t i = pkt.pld_len; i < LP_MAX_PAYLOAD; i++)
-            pkt.payload[i] = 0;
-    }
-
     // ── 순수 바이너리 출력 ─────────────────────────────────────────
     // 포맷: LoRaPublish(11B) | rssi int16 LE(2B) | snr_x4 int8(1B)
     // RPI serial_reader.py 가 이 포맷을 파싱한다.
