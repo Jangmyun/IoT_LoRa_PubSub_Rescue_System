@@ -6,16 +6,18 @@
 #   ./run.sh -l debug
 #
 # 옵션:
-#   -l, --log-level   로그 레벨: DEBUG | INFO | WARNING | ERROR  (기본: INFO)
-#   -h, --help        도움말 출력
+#   -l, --log-level        gateway 로그 레벨: DEBUG | INFO | WARNING | ERROR  (기본: INFO)
+#   -s, --server-log-level uvicorn 로그 레벨: DEBUG | INFO | WARNING | ERROR  (기본: WARNING)
+#   -h, --help             도움말 출력
 #
 # 환경 변수 (옵션보다 낮은 우선순위):
-#   SERIAL_PORT   (기본: /dev/ttyACM0)
-#   BAUD_RATE     (기본: 115200)
-#   SERVER_HOST   (기본: 0.0.0.0)
-#   SERVER_PORT   (기본: 8000)
-#   LOG_LEVEL     (기본: INFO)
-#   MOCK_DATA     (기본: 0, 1/true/yes/on이면 활성화)
+#   SERIAL_PORT        (기본: /dev/ttyACM0)
+#   BAUD_RATE          (기본: 115200)
+#   SERVER_HOST        (기본: 0.0.0.0)
+#   SERVER_PORT        (기본: 8000)
+#   LOG_LEVEL          gateway Python 로그 레벨  (기본: INFO)
+#   SERVER_LOG_LEVEL   uvicorn 로그 레벨         (기본: WARNING)
+#   MOCK_DATA          (기본: 0, 1/true/yes/on이면 활성화)
 #
 # 종료 동작:
 #   - Ctrl+C(SIGINT) 또는 SIGTERM → 두 프로세스 모두 정상 종료
@@ -27,16 +29,22 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ── 인자 파싱 ─────────────────────────────────────────────────────
 _ARG_LOG_LEVEL=""
+_ARG_SERVER_LOG_LEVEL=""
 
 usage() {
-    echo "usage: ./run.sh [-l|--log-level DEBUG|INFO|WARNING|ERROR] [-h|--help]"
+    echo "usage: ./run.sh [-l|--log-level DEBUG|INFO|WARNING|ERROR]"
+    echo "                [-s|--server-log-level DEBUG|INFO|WARNING|ERROR]"
+    echo "                [-h|--help]"
     exit 0
 }
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -l|--log-level)
-            _ARG_LOG_LEVEL="${2^^}"   # 대문자 정규화
+            _ARG_LOG_LEVEL="${2^^}"
+            shift 2 ;;
+        -s|--server-log-level)
+            _ARG_SERVER_LOG_LEVEL="${2^^}"
             shift 2 ;;
         -h|--help) usage ;;
         *) echo "[run.sh] unknown option: $1" >&2; usage ;;
@@ -57,12 +65,14 @@ source "$VENV_DIR/bin/activate"
 : "${SERVER_HOST:=0.0.0.0}"
 : "${SERVER_PORT:=8000}"
 : "${LOG_LEVEL:=INFO}"
+: "${SERVER_LOG_LEVEL:=WARNING}"
 : "${MOCK_DATA:=0}"
 
 # 커맨드라인 옵션이 환경 변수보다 우선
-[[ -n "$_ARG_LOG_LEVEL" ]] && LOG_LEVEL="$_ARG_LOG_LEVEL"
+[[ -n "$_ARG_LOG_LEVEL"        ]] && LOG_LEVEL="$_ARG_LOG_LEVEL"
+[[ -n "$_ARG_SERVER_LOG_LEVEL" ]] && SERVER_LOG_LEVEL="$_ARG_SERVER_LOG_LEVEL"
 
-export SERIAL_PORT BAUD_RATE LOG_LEVEL MOCK_DATA
+export SERIAL_PORT BAUD_RATE LOG_LEVEL SERVER_LOG_LEVEL MOCK_DATA
 export SERVER_URL="http://localhost:${SERVER_PORT}"
 
 # ── 색상 출력 ─────────────────────────────────────────────────────
@@ -97,7 +107,7 @@ log "starting server  (host=${SERVER_HOST} port=${SERVER_PORT})"
   exec uvicorn main:app \
     --host "$SERVER_HOST" \
     --port "$SERVER_PORT" \
-    --log-level "$(echo "$LOG_LEVEL" | tr '[:upper:]' '[:lower:]')"
+    --log-level "$(echo "$SERVER_LOG_LEVEL" | tr '[:upper:]' '[:lower:]')"
 ) &
 SERVER_PID=$!
 log "server  PID=$SERVER_PID"
