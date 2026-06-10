@@ -49,13 +49,13 @@ class NodeId(IntEnum):
     BUOY_C = 0x03
 
 
-# ── CRC-8 (poly=0x07, init=0x00) — matches common Arduino CRC8 ────
+# ── CRC-8 (poly=0x31, init=0x00) — mirrors LoRaPubSub.cpp _crc8() ──
 def crc8(data: bytes) -> int:
     crc = 0
     for byte in data:
         crc ^= byte
         for _ in range(8):
-            crc = ((crc << 1) ^ 0x07) if (crc & 0x80) else (crc << 1)
+            crc = ((crc << 1) ^ 0x31) if (crc & 0x80) else (crc << 1)
             crc &= 0xFF
     return crc
 
@@ -103,7 +103,9 @@ class LoRaPublish:
         pld_len = len(payload)
         padded  = (payload + bytes(LP_MAX_PAYLOAD))[:LP_MAX_PAYLOAD]
         header  = LoRaHeader(LP_PREAMBLE, int(msg_type), node_id, msg_id, ttl)
-        checksum = crc8(header.pack() + bytes([topic, pld_len]) + padded)
+        # CRC 범위: header(5) + topic(1) + pld_len(1) + payload[0..pld_len-1]
+        # firmware LoRaPubSub.cpp L35: crc_len = sizeof(LoRaHeader) + 2 + pld_len
+        checksum = crc8(header.pack() + bytes([topic, pld_len]) + payload[:pld_len])
         return cls(header, topic, pld_len, padded, checksum)
 
     def pack(self) -> bytes:
@@ -127,9 +129,12 @@ class LoRaPublish:
         return cls(header, topic=f[5], pld_len=f[6], payload=payload, crc8_val=f[10])
 
     def verify_crc(self) -> bool:
-        h = self.header
-        p = (self.payload + bytes(LP_MAX_PAYLOAD))[:LP_MAX_PAYLOAD]
-        expected = crc8(h.pack() + bytes([self.topic, self.pld_len]) + p)
+        # CRC 범위: header(5) + topic(1) + pld_len(1) + payload[0..pld_len-1]
+        expected = crc8(
+            self.header.pack()
+            + bytes([self.topic, self.pld_len])
+            + self.payload[:self.pld_len]
+        )
         return expected == self.crc8_val
 
     @property
