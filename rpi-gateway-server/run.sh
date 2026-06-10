@@ -20,6 +20,15 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# ── venv 확인 ─────────────────────────────────────────────────────
+VENV_DIR="$SCRIPT_DIR/.venv"
+if [[ ! -d "$VENV_DIR" ]]; then
+    echo "[run.sh] .venv not found — run ./setup.sh first" >&2
+    exit 1
+fi
+# shellcheck disable=SC1091
+source "$VENV_DIR/bin/activate"
+
 : "${SERIAL_PORT:=/dev/ttyACM0}"
 : "${BAUD_RATE:=115200}"
 : "${SERVER_HOST:=0.0.0.0}"
