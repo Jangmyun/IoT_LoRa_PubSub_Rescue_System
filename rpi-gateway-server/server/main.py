@@ -1,16 +1,24 @@
+import os
+from datetime import datetime
+from typing import Optional
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 import json
-from datetime import datetime
-from typing import Optional
+
+from mock_data import generate_mock_packets
+from state import build_buoy_state, build_event
 
 app = FastAPI(title="LoRa Rescue Gateway Server")
 
 # --- Buoy state store ---
 # key: node_id, value: buoy state dict
 buoy_states: dict[int, dict] = {}
+event_history: list[dict] = []
+MAX_EVENT_HISTORY = 100
+MOCK_DATA_ENABLED = os.getenv("MOCK_DATA", "1").lower() not in {"0", "false", "no", "off"}
 
 
 # --- WebSocket connection manager ---
@@ -51,11 +59,6 @@ async def root():
 
 # --- Packet ingestion (called by gateway) ---
 
-# Topic constants (mirrors LoRaPubSub.h)
-_TOPIC_ALERT       = 0x10
-_TOPIC_ALERT_CLEAR = 0x11
-
-
 class LoRaPacket(BaseModel):
     node_id: int
     msg_id: int
@@ -67,34 +70,29 @@ class LoRaPacket(BaseModel):
     snr: Optional[float] = None
 
 
-def _resolve_status(packet: "LoRaPacket", prev_status: str) -> str:
-    if packet.topic == _TOPIC_ALERT:
-        return "ALERT"
-    if packet.topic == _TOPIC_ALERT_CLEAR:
-        return "NORMAL"
-    # HEARTBEAT / SENSOR_RAW 등 — 기존 경보 상태 유지
-    return prev_status
+def _remember_event(event: dict) -> None:
+    event_history.append(event)
+    del event_history[:-MAX_EVENT_HISTORY]
+
+
+def apply_packet(packet: dict, now: datetime | None = None) -> tuple[dict, dict]:
+    node_id = int(packet["node_id"])
+    current_time = now or datetime.now()
+    state = build_buoy_state(packet, buoy_states.get(node_id), current_time)
+    event = build_event(packet, state, current_time)
+    buoy_states[node_id] = state
+    _remember_event(event)
+    return state, event
 
 
 @app.post("/api/packet")
 async def receive_packet(packet: LoRaPacket):
-    prev = buoy_states.get(packet.node_id, {})
-    status = _resolve_status(packet, prev.get("status", "NORMAL"))
-
-    buoy_states[packet.node_id] = {
-        "node_id": packet.node_id,
-        "status": status,
-        "last_seen": datetime.now().isoformat(timespec="seconds"),
-        "msg_type": packet.msg_type,
-        "topic": packet.topic,
-        "ttl": packet.ttl,
-        "rssi": packet.rssi,
-        "snr": packet.snr,
-    }
+    state, event = apply_packet(packet.model_dump())
 
     await manager.broadcast({
         "type": "packet",
-        "buoy": buoy_states[packet.node_id],
+        "buoy": state,
+        "event": event,
         "raw": packet.model_dump(),
     })
     return {"ok": True}
@@ -106,6 +104,20 @@ async def get_buoys():
     return list(buoy_states.values())
 
 
+@app.get("/api/events")
+async def get_events():
+    return event_history
+
+
+@app.on_event("startup")
+async def startup_seed_mock_data():
+    if not MOCK_DATA_ENABLED or buoy_states:
+        return
+    for packet in generate_mock_packets():
+        mocked_at = datetime.fromisoformat(packet.pop("mocked_at"))
+        apply_packet(packet, mocked_at)
+
+
 # --- WebSocket endpoint ---
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
@@ -114,6 +126,7 @@ async def websocket_endpoint(ws: WebSocket):
     await ws.send_text(json.dumps({
         "type": "init",
         "buoys": list(buoy_states.values()),
+        "events": event_history,
     }, ensure_ascii=False))
     try:
         while True:

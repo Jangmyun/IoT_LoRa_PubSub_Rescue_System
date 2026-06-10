@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" href="data:," />
   <title>LoRa 해양 구조 모니터링</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -115,6 +116,27 @@
 
     .buoy-card .stat { font-size: 0.8rem; color: var(--muted); margin-bottom: 5px; }
     .buoy-card .stat span { color: var(--text); }
+    .sensor-row {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin: 14px 0;
+    }
+    .metric {
+      border-top: 1px solid var(--border);
+      padding-top: 8px;
+    }
+    .metric .label {
+      display: block;
+      color: var(--muted);
+      font-size: 0.7rem;
+      margin-bottom: 3px;
+    }
+    .metric .value {
+      color: var(--text);
+      font-size: 1rem;
+      font-weight: 700;
+    }
     .status-label {
       display: inline-block;
       margin-top: 10px;
@@ -217,11 +239,16 @@
       if (msg.type === 'init') {
         msg.buoys.forEach(b => { buoys[b.node_id] = b; });
         renderAll();
+        renderEventHistory(msg.events || []);
       } else if (msg.type === 'packet') {
         const b = msg.buoy;
         buoys[b.node_id] = b;
         renderCard(b);
-        addLog(b.status, `부표 ${b.node_id} — ${b.msg_type} topic=0x${b.topic.toString(16).padStart(2,'0')} rssi=${b.rssi ?? 'N/A'}`);
+        if (msg.event) {
+          addEventLog(msg.event);
+        } else {
+          addLog(b.status, `부표 ${b.node_id} — ${b.msg_type} topic=0x${b.topic.toString(16).padStart(2,'0')} rssi=${b.rssi ?? 'N/A'}`);
+        }
         updateBanner();
       }
     };
@@ -250,6 +277,24 @@
         <span class="status-dot ${b.status}"></span>
       </div>
       <div class="stat">마지막 수신 <span>${b.last_seen}</span></div>
+      <div class="sensor-row">
+        <div class="metric">
+          <span class="label">Sonar</span>
+          <span class="value">${formatNumber(b.sonar_cm, 0, ' cm')}</span>
+        </div>
+        <div class="metric">
+          <span class="label">Accel</span>
+          <span class="value">${formatNumber(b.accel_ms2, 1, ' m/s²')}</span>
+        </div>
+        <div class="metric">
+          <span class="label">Battery</span>
+          <span class="value">${formatNumber(b.battery_pct, 0, '%')}</span>
+        </div>
+        <div class="metric">
+          <span class="label">Alert</span>
+          <span class="value">${formatNumber(b.alert_confidence, 0, '%')}</span>
+        </div>
+      </div>
       <div class="stat">RSSI <span>${b.rssi != null ? b.rssi + ' dBm' : '—'}</span></div>
       <div class="stat">SNR <span>${b.snr != null ? b.snr + ' dB' : '—'}</span></div>
       <div class="stat">토픽 <span>0x${b.topic.toString(16).padStart(2,'0')}</span></div>
@@ -258,20 +303,35 @@
     `;
   }
 
+  function formatNumber(value, digits, suffix) {
+    if (value == null) return '—';
+    return `${Number(value).toFixed(digits)}${suffix}`;
+  }
+
   function updateBanner() {
     const anyAlert = Object.values(buoys).some(b => b.status === 'ALERT');
     banner.className = anyAlert ? 'active' : '';
   }
 
   // ---- Log ----
-  function addLog(level, text) {
-    const now = new Date().toLocaleTimeString('ko-KR');
+  function addLog(level, text, timestamp = null) {
+    const now = timestamp ? new Date(timestamp).toLocaleTimeString('ko-KR') : new Date().toLocaleTimeString('ko-KR');
     const entry = document.createElement('div');
     entry.className = `log-entry ${level}`;
     entry.innerHTML = `<span class="ts">${now}</span><span class="tag">[${level}]</span> ${text}`;
     log.prepend(entry);
     // Trim old entries
     while (log.children.length > MAX_LOG) log.removeChild(log.lastChild);
+  }
+
+  function renderEventHistory(events) {
+    log.innerHTML = '';
+    events.slice(-MAX_LOG).forEach(addEventLog);
+  }
+
+  function addEventLog(event) {
+    const topic = event.topic != null ? `0x${event.topic.toString(16).padStart(2,'0')}` : 'N/A';
+    addLog(event.level || 'INFO', event.text || `부표 ${event.node_id} topic=${topic}`, event.timestamp);
   }
 
   connect();

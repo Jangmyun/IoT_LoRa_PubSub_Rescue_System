@@ -10,6 +10,7 @@
 #   SERVER_HOST   (기본: 0.0.0.0)
 #   SERVER_PORT   (기본: 8000)
 #   LOG_LEVEL     (기본: INFO)
+#   MOCK_DATA     (기본: 1, 0/false/no/off면 비활성화)
 #
 # 종료 동작:
 #   - Ctrl+C(SIGINT) 또는 SIGTERM → 두 프로세스 모두 정상 종료
@@ -24,8 +25,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 : "${SERVER_HOST:=0.0.0.0}"
 : "${SERVER_PORT:=8000}"
 : "${LOG_LEVEL:=INFO}"
+: "${MOCK_DATA:=1}"
 
-export SERIAL_PORT BAUD_RATE LOG_LEVEL
+export SERIAL_PORT BAUD_RATE LOG_LEVEL MOCK_DATA
 export SERVER_URL="http://localhost:${SERVER_PORT}"
 
 # ── 색상 출력 ─────────────────────────────────────────────────────
