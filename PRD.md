@@ -193,7 +193,7 @@
 
 | 항목 | 파일 | 비고 |
 |------|------|------|
-| PlatformIO 프로젝트 구성 | `platformio-test/platformio.ini` | TTGO LoRa32 + native 테스트 환경 |
+| PlatformIO 프로젝트 구성 | `LoRa_firmware/platformio.ini` | TTGO LoRa32 + native 테스트 환경 |
 | LoRaPubSub 라이브러리 | `lib/LoRaPubSub/` | 헤더 + 구현 분리, PlatformIO 라이브러리 형식 |
 | 패킷 포맷 설계 | `LoRaPubSub.h` | 아래 설계 변경 사항 참고 |
 | PUBLISH / ACK / RELAY 송수신 | `LoRaPubSub.cpp` | QoS 0 (fire-and-forget), QoS 1 (ACK 대기) |
