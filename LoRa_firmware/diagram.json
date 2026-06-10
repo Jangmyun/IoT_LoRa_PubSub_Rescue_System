@@ -26,6 +26,8 @@
     }
   ],
   "connections": [
+    ["esp32:TX0", "$serialMonitor:RX", "", []],
+    ["esp32:RX0", "$serialMonitor:TX", "", []],
     ["esp32:GND.1", "sonar:GND", "black", []],
     ["esp32:5V", "sonar:VCC", "red", []],
     ["esp32:D13", "sonar:TRIG", "green", []],
