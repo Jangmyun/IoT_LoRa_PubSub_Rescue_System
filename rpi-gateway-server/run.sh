@@ -10,7 +10,7 @@
 #   SERVER_HOST   (기본: 0.0.0.0)
 #   SERVER_PORT   (기본: 8000)
 #   LOG_LEVEL     (기본: INFO)
-#   MOCK_DATA     (기본: 1, 0/false/no/off면 비활성화)
+#   MOCK_DATA     (기본: 0, 1/true/yes/on이면 활성화)
 #
 # 종료 동작:
 #   - Ctrl+C(SIGINT) 또는 SIGTERM → 두 프로세스 모두 정상 종료
@@ -20,12 +20,21 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# ── venv 확인 ─────────────────────────────────────────────────────
+VENV_DIR="$SCRIPT_DIR/.venv"
+if [[ ! -d "$VENV_DIR" ]]; then
+    echo "[run.sh] .venv not found — run ./setup.sh first" >&2
+    exit 1
+fi
+# shellcheck disable=SC1091
+source "$VENV_DIR/bin/activate"
+
 : "${SERIAL_PORT:=/dev/ttyACM0}"
 : "${BAUD_RATE:=115200}"
 : "${SERVER_HOST:=0.0.0.0}"
 : "${SERVER_PORT:=8000}"
 : "${LOG_LEVEL:=INFO}"
-: "${MOCK_DATA:=1}"
+: "${MOCK_DATA:=0}"
 
 export SERIAL_PORT BAUD_RATE LOG_LEVEL MOCK_DATA
 export SERVER_URL="http://localhost:${SERVER_PORT}"
