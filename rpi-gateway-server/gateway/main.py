@@ -63,6 +63,8 @@ async def run() -> None:
             logger.warning("server rejected packet: %s", exc)
         except httpx.HTTPError as exc:
             logger.warning("forward failed: %s", exc)
+        except RuntimeError:
+            pass  # client closed during shutdown
 
     broker.subscribe_all(forward)
 

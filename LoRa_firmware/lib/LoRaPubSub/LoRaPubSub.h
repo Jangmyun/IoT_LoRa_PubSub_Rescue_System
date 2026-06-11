@@ -92,6 +92,7 @@ private:
     bool     _alreadySeen(uint8_t node_id, uint8_t msg_id);
     void     _markSeen(uint8_t node_id, uint8_t msg_id);
     void     _relay(const LoRaPublish& pkt);
+    void     _sendPublish(LoRaPublish& pkt);
     void     _sendRaw(const uint8_t* buf, uint8_t len);
     void     _handleIncoming(const LoRaPublish& pkt);
 };

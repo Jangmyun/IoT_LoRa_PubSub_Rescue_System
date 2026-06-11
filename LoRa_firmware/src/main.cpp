@@ -25,7 +25,8 @@
 #define LORA_DI0   26
 #endif
 
-LoRaPubSub    pubsub(NODE_BUOY_B);
+#define NODE_ID  NODE_BUOY_A   // ← 업로드 전 여기만 변경
+LoRaPubSub    pubsub(NODE_ID);
 SonarSensor   sonar(13, 12);   // TRIG=GPIO13, ECHO=GPIO12
 ImuSensor     imu;             // I2C SDA=GPIO21, SCL=GPIO22
 SensorManager sensors;

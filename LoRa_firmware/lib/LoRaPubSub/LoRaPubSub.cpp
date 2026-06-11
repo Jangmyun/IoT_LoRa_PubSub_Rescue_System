@@ -20,6 +20,7 @@ bool LoRaPubSub::publish(uint8_t topic,
     const uint8_t* payload, uint8_t pld_len,
     bool ack_required)
 {
+    if (payload == nullptr) pld_len = 0;
     if (pld_len > LP_MAX_PAYLOAD) pld_len = LP_MAX_PAYLOAD;
 
     LoRaPublish pkt{};
@@ -30,21 +31,15 @@ bool LoRaPubSub::publish(uint8_t topic,
     pkt.header.ttl = LP_MAX_TTL;
     pkt.topic = topic;
     pkt.pld_len = pld_len;
-    memcpy(pkt.payload, payload, pld_len);
-
-    // CRC8 범위: 헤더(5B) + topic(1B) + pld_len(1B) + payload(pld_len)
-    uint8_t crc_len = sizeof(LoRaHeader) + 2 + pld_len;
-    pkt.crc8 = _crc8(reinterpret_cast<uint8_t*>(&pkt), crc_len);
-
-    uint8_t total_len = crc_len + 1;
+    if (pld_len > 0) memcpy(pkt.payload, payload, pld_len);
 
     if (!ack_required) {
-        _sendRaw(reinterpret_cast<uint8_t*>(&pkt), total_len);
+        _sendPublish(pkt);
         return true;
     }
 
     for (uint8_t attempt = 0; attempt < LP_MAX_RETRIES; attempt++) {
-        _sendRaw(reinterpret_cast<uint8_t*>(&pkt), total_len);
+        _sendPublish(pkt);
         uint32_t deadline = millis() + 800;
         while (millis() < deadline) {
             int size = LoRa.parsePacket();
@@ -86,26 +81,6 @@ void LoRaPubSub::tick() {
 
     if (pkt.header.msg_type == MSG_PUBLISH ||
         pkt.header.msg_type == MSG_RELAY) {
-
-        // pld_len < LP_MAX_PAYLOAD 이면 CRC 바이트가 payload 배열 안에
-        // 끼어들어 있으므로 올바른 위치(pkt.crc8)로 이동하고 남은 바이트 클리어
-        if (pkt.pld_len < LP_MAX_PAYLOAD) {
-            uint8_t* raw      = reinterpret_cast<uint8_t*>(&pkt);
-            uint8_t  crc_off  = sizeof(LoRaHeader) + 2 + pkt.pld_len;
-            pkt.crc8          = raw[crc_off];
-            for (uint8_t i = pkt.pld_len; i < LP_MAX_PAYLOAD; i++)
-                pkt.payload[i] = 0;
-        }
-
-        // RPI 게이트웨이용 바이너리 시리얼 출력
-        // 포맷: LoRaPublish(11B) + rssi int16 LE(2B) + snr_x4 int8(1B)
-        Serial.write(reinterpret_cast<const uint8_t*>(&pkt), sizeof(LoRaPublish));
-        int16_t rssi   = (int16_t)LoRa.packetRssi();
-        int8_t  snr_x4 = (int8_t)(LoRa.packetSnr() * 4.0f);
-        Serial.write(reinterpret_cast<uint8_t*>(&rssi),   sizeof(rssi));
-        Serial.write(reinterpret_cast<uint8_t*>(&snr_x4), sizeof(snr_x4));
-        Serial.flush();
-
         _handleIncoming(pkt);
         if (pkt.header.ttl > 1) _relay(pkt);
     }
@@ -123,12 +98,26 @@ void LoRaPubSub::_handleIncoming(const LoRaPublish& pkt) {
 void LoRaPubSub::_relay(const LoRaPublish& pkt) {
     LoRaPublish relay = pkt;
     relay.header.msg_type = MSG_RELAY;
-    relay.header.node_id = _node_id;
+    // node_id는 원본 발신자 ID 그대로 유지 — 변경 시 게이트웨이가 릴레이어 노드 데이터로 오인함
     relay.header.ttl--;
+    _sendPublish(relay);
+}
 
-    uint8_t crc_len = sizeof(LoRaHeader) + 2 + relay.pld_len;
-    relay.crc8 = _crc8(reinterpret_cast<uint8_t*>(&relay), crc_len);
-    _sendRaw(reinterpret_cast<uint8_t*>(&relay), crc_len + 1);
+void LoRaPubSub::_sendPublish(LoRaPublish& pkt) {
+    if (pkt.pld_len > LP_MAX_PAYLOAD) pkt.pld_len = LP_MAX_PAYLOAD;
+
+    constexpr uint8_t header_len = sizeof(LoRaHeader);
+    uint8_t crc_offset = header_len + 2 + pkt.pld_len;
+    uint8_t wire[sizeof(LoRaPublish)] = {};
+
+    memcpy(wire, &pkt.header, header_len);
+    wire[header_len]     = pkt.topic;
+    wire[header_len + 1] = pkt.pld_len;
+    if (pkt.pld_len > 0) memcpy(wire + header_len + 2, pkt.payload, pkt.pld_len);
+
+    pkt.crc8 = _crc8(wire, crc_offset);
+    wire[crc_offset] = pkt.crc8;
+    _sendRaw(wire, crc_offset + 1);
 }
 
 void LoRaPubSub::_sendRaw(const uint8_t* buf, uint8_t len) {

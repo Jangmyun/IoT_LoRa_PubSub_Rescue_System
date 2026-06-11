@@ -25,6 +25,24 @@ static LoRaPublish make_publish(uint8_t node_id, uint8_t msg_id,
     return pkt;
 }
 
+static uint8_t crc8_for_test(const uint8_t* data, uint8_t len) {
+    uint8_t crc = 0x00;
+    for (uint8_t i = 0; i < len; i++) {
+        crc ^= data[i];
+        for (uint8_t j = 0; j < 8; j++) {
+            crc = (crc & 0x80) ? (crc << 1) ^ 0x31 : (crc << 1);
+        }
+    }
+    return crc;
+}
+
+static void assert_compact_publish_crc(uint8_t payload_len) {
+    uint8_t crc_offset = sizeof(LoRaHeader) + 2 + payload_len;
+
+    TEST_ASSERT_EQUAL_INT((int)crc_offset + 1, LoRa.tx_len);
+    TEST_ASSERT_EQUAL_HEX8(crc8_for_test(LoRa.tx_buf, crc_offset), LoRa.tx_buf[crc_offset]);
+}
+
 // ── 콜백 스파이 ───────────────────────────────────────────
 static int         spy_count;
 static LoRaPublish spy_pkt;
@@ -81,6 +99,56 @@ void test_publish_packet_length() {
 
     // 5(header) + 1(topic) + 1(pld_len) + 1(payload) + 1(crc8) = 9
     TEST_ASSERT_EQUAL_INT(9, LoRa.tx_len);
+}
+
+void test_publish_crc_after_empty_payload() {
+    LoRaPubSub ps(NODE_BUOY_A);
+    ps.begin();
+
+    ps.publish(TOPIC_ALERT_CLEAR, nullptr, 0);
+
+    auto* sent = reinterpret_cast<LoRaPublish*>(LoRa.tx_buf);
+    TEST_ASSERT_EQUAL_HEX8(TOPIC_ALERT_CLEAR, sent->topic);
+    TEST_ASSERT_EQUAL_UINT8(0, sent->pld_len);
+    assert_compact_publish_crc(0);
+}
+
+void test_publish_crc_after_one_byte_payload() {
+    LoRaPubSub ps(NODE_BUOY_A);
+    ps.begin();
+
+    uint8_t p[] = { 90 };
+    ps.publish(TOPIC_ALERT, p, 1);
+
+    auto* sent = reinterpret_cast<LoRaPublish*>(LoRa.tx_buf);
+    TEST_ASSERT_EQUAL_UINT8(90, sent->payload[0]);
+    assert_compact_publish_crc(1);
+}
+
+void test_publish_crc_after_two_byte_payload() {
+    LoRaPubSub ps(NODE_BUOY_A);
+    ps.begin();
+
+    uint8_t p[] = { 75, 0 };
+    ps.publish(TOPIC_HEARTBEAT, p, 2);
+
+    auto* sent = reinterpret_cast<LoRaPublish*>(LoRa.tx_buf);
+    TEST_ASSERT_EQUAL_UINT8(75, sent->payload[0]);
+    TEST_ASSERT_EQUAL_UINT8(0, sent->payload[1]);
+    assert_compact_publish_crc(2);
+}
+
+void test_publish_crc_after_full_payload() {
+    LoRaPubSub ps(NODE_BUOY_A);
+    ps.begin();
+
+    uint8_t p[] = { 1, 2, 3 };
+    ps.publish(TOPIC_SENSOR_RAW, p, 3);
+
+    auto* sent = reinterpret_cast<LoRaPublish*>(LoRa.tx_buf);
+    TEST_ASSERT_EQUAL_UINT8(3, sent->pld_len);
+    TEST_ASSERT_EQUAL_UINT8(3, sent->payload[2]);
+    assert_compact_publish_crc(3);
 }
 
 // 4. msg_id 카운터 단조 증가
@@ -191,8 +259,10 @@ void test_relay_decrements_ttl_and_type() {
 
     auto* relayed = reinterpret_cast<LoRaPublish*>(LoRa.tx_buf);
     TEST_ASSERT_EQUAL_HEX8(MSG_RELAY, relayed->header.msg_type);
-    TEST_ASSERT_EQUAL_HEX8(NODE_BUOY_B, relayed->header.node_id);
+    // 릴레이는 원본 발신자 node_id(A)를 그대로 보존해야 한다
+    TEST_ASSERT_EQUAL_HEX8(NODE_BUOY_A, relayed->header.node_id);
     TEST_ASSERT_EQUAL_UINT8(1, relayed->header.ttl);      // 2 - 1
+    assert_compact_publish_crc(1);
 }
 
 // 11. TTL=1 이면 릴레이하지 않음
@@ -311,6 +381,7 @@ void test_sensor_manager_publish_raw_only_ready_sensors() {
     TEST_ASSERT_EQUAL_HEX8(TOPIC_SENSOR_RAW, sent->topic);
     TEST_ASSERT_EQUAL_UINT8(1, sent->pld_len);
     TEST_ASSERT_EQUAL_UINT8(42, sent->payload[0]);
+    assert_compact_publish_crc(1);
 }
 
 // ─────────────────────────────────────────────────────────
@@ -320,6 +391,10 @@ int main() {
     RUN_TEST(test_publish_qos0_structure);
     RUN_TEST(test_publish_ttl_initial_value);
     RUN_TEST(test_publish_packet_length);
+    RUN_TEST(test_publish_crc_after_empty_payload);
+    RUN_TEST(test_publish_crc_after_one_byte_payload);
+    RUN_TEST(test_publish_crc_after_two_byte_payload);
+    RUN_TEST(test_publish_crc_after_full_payload);
     RUN_TEST(test_msg_id_increments);
     RUN_TEST(test_subscribe_exact_topic_fires);
     RUN_TEST(test_subscribe_upper_nibble_wildcard);

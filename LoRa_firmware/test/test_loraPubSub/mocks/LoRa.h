@@ -23,6 +23,11 @@ struct MockLoRa {
         rx_head  = rx_tail = 0;
     }
 
+    // Config stubs (no-op in tests)
+    void setSyncWord(uint8_t /*sw*/)             {}
+    void setSpreadingFactor(int /*sf*/)          {}
+    void setSignalBandwidth(long /*bw*/)         {}
+
     // TX
     void   beginPacket()                         { tx_len = 0; }
     size_t write(const uint8_t *buf, size_t sz)  { memcpy(tx_buf + tx_len, buf, sz); tx_len += sz; return sz; }
