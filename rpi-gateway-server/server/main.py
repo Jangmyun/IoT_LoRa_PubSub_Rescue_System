@@ -9,6 +9,7 @@ from pydantic import BaseModel
 import json
 
 from mock_data import generate_mock_packets
+from recorder import CsvRecorder
 from state import build_buoy_state, build_event
 
 app = FastAPI(title="LoRa Rescue Gateway Server")
@@ -19,6 +20,8 @@ buoy_states: dict[int, dict] = {}
 event_history: list[dict] = []
 MAX_EVENT_HISTORY = 100
 MOCK_DATA_ENABLED = os.getenv("MOCK_DATA", "1").lower() not in {"0", "false", "no", "off"}
+RECORDING_DIR = os.getenv("RECORDING_DIR", "recordings")
+recorder = CsvRecorder(RECORDING_DIR)
 
 
 # --- WebSocket connection manager ---
@@ -82,6 +85,7 @@ def apply_packet(packet: dict, now: datetime | None = None) -> tuple[dict, dict]
     event = build_event(packet, state, current_time)
     buoy_states[node_id] = state
     _remember_event(event)
+    recorder.record_packet(packet, state, current_time)
     return state, event
 
 
@@ -94,6 +98,7 @@ async def receive_packet(packet: LoRaPacket):
         "buoy": state,
         "event": event,
         "raw": packet.model_dump(),
+        "recording": recorder.status(),
     })
     return {"ok": True}
 
@@ -107,6 +112,25 @@ async def get_buoys():
 @app.get("/api/events")
 async def get_events():
     return event_history
+
+
+@app.get("/api/recording")
+async def get_recording_status():
+    return recorder.status()
+
+
+@app.post("/api/recording/start")
+async def start_recording():
+    status = recorder.start()
+    await manager.broadcast({"type": "recording", "recording": status})
+    return status
+
+
+@app.post("/api/recording/stop")
+async def stop_recording():
+    status = recorder.stop()
+    await manager.broadcast({"type": "recording", "recording": status})
+    return status
 
 
 @app.on_event("startup")
@@ -127,6 +151,7 @@ async def websocket_endpoint(ws: WebSocket):
         "type": "init",
         "buoys": list(buoy_states.values()),
         "events": event_history,
+        "recording": recorder.status(),
     }, ensure_ascii=False))
     try:
         while True:

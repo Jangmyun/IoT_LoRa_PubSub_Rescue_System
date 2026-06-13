@@ -102,6 +102,7 @@ coverage.xml
 # 로그
 *.log
 pip-log.txt
+rpi-gateway-server/server/recordings/
 
 # Jupyter Notebook
 .ipynb_checkpoints
