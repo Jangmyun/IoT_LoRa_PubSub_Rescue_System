@@ -6,7 +6,9 @@
 static Adafruit_MPU6050 _mpu;
 
 bool ImuSensor::begin() {
-    return _mpu.begin();
+    // AD0 핀 LOW=0x68(기본), HIGH=0x69 — 모듈에 따라 다르므로 둘 다 시도
+    if (_mpu.begin(0x68)) return true;
+    return _mpu.begin(0x69);
 }
 
 bool ImuSensor::read() {
