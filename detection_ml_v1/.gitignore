@@ -1,0 +1,4 @@
+artifacts/
+example_data/
+__pycache__/
+*.pyc

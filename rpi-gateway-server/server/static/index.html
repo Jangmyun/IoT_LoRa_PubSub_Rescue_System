@@ -150,6 +150,60 @@
     .status-label.NORMAL { color: var(--green); border: 1px solid var(--green); }
 
     /* Event log */
+    #recording-section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      align-items: center;
+    }
+
+    #recording-section h2 {
+      font-size: 0.9rem;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+
+    #recording-meta {
+      color: var(--muted);
+      font-size: 0.78rem;
+      line-height: 1.5;
+      overflow-wrap: anywhere;
+    }
+
+    .recording-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .recording-actions button {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--bg);
+      color: var(--text);
+      padding: 8px 12px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .recording-actions button:hover { border-color: var(--blue); }
+    .recording-actions button:disabled {
+      cursor: not-allowed;
+      opacity: 0.5;
+    }
+    #record-start { color: var(--green); }
+    #record-stop { color: var(--red); }
+
+    @media (max-width: 640px) {
+      #recording-section { grid-template-columns: 1fr; }
+      .recording-actions { justify-content: stretch; }
+      .recording-actions button { flex: 1; }
+    }
+
     #log-section h2 { font-size: 0.9rem; font-weight: 600; color: var(--muted); margin-bottom: 10px; }
 
     #event-log {
@@ -193,6 +247,17 @@
     <!-- Buoy cards injected by JS -->
   </div>
 
+  <div id="recording-section">
+    <div>
+      <h2>CSV Recording</h2>
+      <div id="recording-meta">상태 확인 중</div>
+    </div>
+    <div class="recording-actions">
+      <button id="record-start" type="button">Start CSV</button>
+      <button id="record-stop" type="button" disabled>Stop</button>
+    </div>
+  </div>
+
   <div id="log-section">
     <h2>이벤트 로그</h2>
     <div id="event-log"></div>
@@ -209,8 +274,12 @@
   const log = document.getElementById('event-log');
   const badge = document.getElementById('conn-badge');
   const banner = document.getElementById('alert-banner');
+  const recordingMeta = document.getElementById('recording-meta');
+  const recordStart = document.getElementById('record-start');
+  const recordStop = document.getElementById('record-stop');
 
   let buoys = {};   // node_id → state
+  let recording = { active: false, rows_written: 0, current_file: null, next_file: null };
 
   // ---- WebSocket ----
   function connect() {
@@ -238,11 +307,13 @@
       const msg = JSON.parse(e.data);
       if (msg.type === 'init') {
         msg.buoys.forEach(b => { buoys[b.node_id] = b; });
+        if (msg.recording) updateRecording(msg.recording);
         renderAll();
         renderEventHistory(msg.events || []);
       } else if (msg.type === 'packet') {
         const b = msg.buoy;
         buoys[b.node_id] = b;
+        if (msg.recording) updateRecording(msg.recording);
         renderCard(b);
         if (msg.event) {
           addEventLog(msg.event);
@@ -250,6 +321,8 @@
           addLog(b.status, `부표 ${b.node_id} — ${b.msg_type} topic=0x${b.topic.toString(16).padStart(2,'0')} rssi=${b.rssi ?? 'N/A'}`);
         }
         updateBanner();
+      } else if (msg.type === 'recording') {
+        updateRecording(msg.recording);
       }
     };
   }
@@ -313,6 +386,50 @@
     banner.className = anyAlert ? 'active' : '';
   }
 
+  async function refreshRecording() {
+    const response = await fetch('/api/recording');
+    if (!response.ok) throw new Error('recording status failed');
+    updateRecording(await response.json());
+  }
+
+  async function startRecording() {
+    recordStart.disabled = true;
+    try {
+      const response = await fetch('/api/recording/start', { method: 'POST' });
+      if (!response.ok) throw new Error('start failed');
+      updateRecording(await response.json());
+      addLog('INFO', 'CSV recording started');
+    } catch (error) {
+      addLog('ALERT', `CSV recording start failed: ${error.message}`);
+      updateRecording(recording);
+    }
+  }
+
+  async function stopRecording() {
+    recordStop.disabled = true;
+    try {
+      const response = await fetch('/api/recording/stop', { method: 'POST' });
+      if (!response.ok) throw new Error('stop failed');
+      updateRecording(await response.json());
+      addLog('INFO', 'CSV recording stopped');
+    } catch (error) {
+      addLog('ALERT', `CSV recording stop failed: ${error.message}`);
+      updateRecording(recording);
+    }
+  }
+
+  function updateRecording(status) {
+    recording = status || recording;
+    const file = recording.active ? recording.current_file : recording.next_file;
+    recordingMeta.innerHTML = `
+      <div>상태: <span>${recording.active ? 'recording' : 'idle'}</span></div>
+      <div>파일: <span>${file || '—'}</span></div>
+      <div>저장 row: <span>${recording.rows_written ?? 0}</span></div>
+    `;
+    recordStart.disabled = Boolean(recording.active);
+    recordStop.disabled = !recording.active;
+  }
+
   // ---- Log ----
   function addLog(level, text, timestamp = null) {
     const now = timestamp ? new Date(timestamp).toLocaleTimeString('ko-KR') : new Date().toLocaleTimeString('ko-KR');
@@ -334,6 +451,9 @@
     addLog(event.level || 'INFO', event.text || `부표 ${event.node_id} topic=${topic}`, event.timestamp);
   }
 
+  recordStart.addEventListener('click', startRecording);
+  recordStop.addEventListener('click', stopRecording);
+  refreshRecording().catch(() => updateRecording(recording));
   connect();
 </script>
 </body>
