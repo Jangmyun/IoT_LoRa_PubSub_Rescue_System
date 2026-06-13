@@ -159,14 +159,14 @@
 ### Week 1 — 하드웨어 및 기초 통신
 
 - [x] TTGO LoRa32 셋업, 개발 환경 구성 (PlatformIO)
-- [ ] JSN-SR04T, GY-521 센서 연결 및 값 읽기 확인
+- [x] HC-SR04(→AJ-SR04M), GY-521 센서 연결 및 값 읽기 확인 (Wokwi 검증 완료)
 - [x] LoRa 단방향 패킷 송수신 기본 동작 확인
 
 ### Week 2 — 프로토콜 및 수신국
 
 - [x] LoRa 경량 pub/sub 패킷 포맷 설계 및 구현 (`lib/LoRaPubSub`)
 - [x] 멀티홉 릴레이 (TTL, 중복 억제) 구현
-- [ ] Raspberry Pi 수신국 + 브로커 + WebSocket 대시보드 구축
+- [x] Raspberry Pi 수신국 + 브로커 + WebSocket 대시보드 구축
 
 ### Week 3 — 탐지 알고리즘 및 통합
 
@@ -187,22 +187,50 @@
 
 ---
 
-## 13. 현재 구현 현황 (as of 2026-06-10)
+## 13. 현재 구현 현황 (as of 2026-06-13)
 
-### 완료
+### 13.1 완료 — 부표 펌웨어 (LoRa_firmware)
 
 | 항목 | 파일 | 비고 |
 |------|------|------|
 | PlatformIO 프로젝트 구성 | `LoRa_firmware/platformio.ini` | TTGO LoRa32 + native 테스트 환경 |
 | LoRaPubSub 라이브러리 | `lib/LoRaPubSub/` | 헤더 + 구현 분리, PlatformIO 라이브러리 형식 |
-| 패킷 포맷 설계 | `LoRaPubSub.h` | 아래 설계 변경 사항 참고 |
+| 패킷 포맷 설계 | `LoRaPubSub.h` | 13.4 설계 변경 사항 참고 |
 | PUBLISH / ACK / RELAY 송수신 | `LoRaPubSub.cpp` | QoS 0 (fire-and-forget), QoS 1 (ACK 대기) |
-| TTL 기반 멀티홉 릴레이 | `LoRaPubSub.cpp` | TTL 감소, MSG_RELAY 전환 |
-| 중복 패킷 억제 | `LoRaPubSub.cpp` | {node_id, msg_id} 링버퍼 (16 슬롯) |
+| TTL 기반 멀티홉 릴레이 | `LoRaPubSub.cpp` | TTL 감소, MSG_RELAY 전환 (src node_id 보존) |
+| 중복 패킷 억제 | `LoRaPubSub.cpp` | `{node_id, msg_id}` 링버퍼 (16 슬롯) |
 | 토픽 와일드카드 구독 | `LoRaPubSub.cpp` | 상위 니블 일치 시 카테고리 전체 수신 |
+| 가변 길이 패킷 조립 | `LoRaPubSub.cpp` | 페이로드 길이만큼만 송수신, CRC 위치 동적 계산 |
 | Mock 기반 유닛테스트 (13개) | `test/test_loraPubSub/` | native 환경, 하드웨어 불필요 |
+| 노드별 NODE_ID 빌드 변경 용이성 | `src/main.cpp` | 단일 매크로 변경으로 A/B/C 빌드 분리 |
 
-### 설계 변경 사항 (PRD FR-2.2 대비)
+### 13.2 완료 — 센서 드라이버 및 하드웨어 (LoRa_firmware/lib/Sensors, diagram.json)
+
+| 항목 | 파일 | 비고 |
+|------|------|------|
+| `ISensor` 추상 인터페이스 | `lib/Sensors/ISensor.h` | `begin / read / getValue / getPacked` |
+| 초음파 센서 드라이버 | `lib/Sensors/SonarSensor.cpp` | HC-SR04/AJ-SR04M 공통, `pulseIn` 직접 호출, 30 ms 타임아웃 |
+| 가속도 센서 드라이버 | `lib/Sensors/ImuSensor.cpp` | MPU-6050, AD0 핀 폴백 (0x68→0x69 재시도) |
+| SensorManager | `lib/Sensors/SensorManager.cpp` | 다중 센서 일괄 begin/read, `TOPIC_SENSOR_RAW`로 publishRaw |
+| Wokwi 시뮬레이션 회로 | `LoRa_firmware/diagram.json` | ESP32 + HC-SR04(분압 1k/2.2k) + MPU6050 |
+| 하드웨어 도착: AJ-SR04M | — | 5 V 분압 (Echo→1 kΩ→D12 / 2.2 kΩ→GND) 적용 |
+
+### 13.3 완료 — RPi 게이트웨이 / 서버 (rpi-gateway-server)
+
+| 항목 | 파일 | 비고 |
+|------|------|------|
+| ESP32 수신 게이트웨이 펌웨어 | `LoRa_firmware/src/gateway_main.cpp` | LoRa 수신 → CRC 검증 → 바이너리 Serial 출력 (RSSI/SNR 부가) |
+| Serial 패킷 리더 | `gateway/serial_reader.py` | 프리앰블 동기화, 가변 길이 패킷 파싱 |
+| Broker (asyncio) | `gateway/broker.py` | `(node_id, msg_id)` 중복 억제, async fanout |
+| Gateway entry | `gateway/main.py` | `serial → broker → POST /api/packet` |
+| 패킷 모델 | `gateway/lib/packet.py` | `LoRaHeader / LoRaPublish / LoRaAck`, MsgType enum |
+| FastAPI 서버 + WebSocket | `server/main.py` | `/api/packet`, `/api/buoys`, `/api/events`, `/ws` |
+| 부표 상태 계산 | `server/state.py` | 토픽별 페이로드 디코딩, NORMAL/ALERT 상태 머신 |
+| Mock 데이터 (오프라인 개발) | `server/mock_data.py` | `MOCK_DATA=1` 환경변수로 토글 |
+| 실시간 대시보드 | `server/static/index.html` | 340 lines, WebSocket 구독, 부표/이벤트 시각화 |
+| Pytest 테스트 | `tests/` | state 빌더, mock data, gateway 유닛테스트 |
+
+### 13.4 설계 변경 사항 (PRD FR-2.2 대비)
 
 PRD의 원안 `[version | type | topic_len | topic | payload_len | payload | crc]` 대신 아래 구조로 확정하였다.
 
@@ -215,15 +243,58 @@ PRD의 원안 `[version | type | topic_len | topic | payload_len | payload | crc
 - **topic 고정 1바이트**: 토픽 공간이 256개로 충분하며 topic_len 필드 불필요
 - **node_id + msg_id 추가**: 브로커 없는 환경에서 중복 억제와 ACK 매칭에 필수
 - **preamble 추가 (0xAB)**: LoRa 수신 시 노이즈 패킷 1차 필터링
+- **가변 길이 송신**: 페이로드 실제 사용량만 송신, CRC 위치는 `pld_len` 기반으로 동적 계산
 
-### 미완료 (이후 작업)
+### 13.5 하드웨어 변경 사항 (PRD §5 대비)
 
-- JSN-SR04T 초음파 센서 드라이버 및 수면 교란 감지 로직
-- GY-521 가속도 센서 드라이버 및 파도 오탐 보정 로직
-- 센서 퓨전 익수자 판정 알고리즘 (분산 임계값)
-- Raspberry Pi 수신국: LoRa 수신 → MQTT/WebSocket 브리지
-- 실시간 대시보드 (WebSocket 클라이언트)
-- 전력 관리 (이벤트 기반 송신, Deep Sleep)
+- **초음파 센서**: JSN-SR04T(방수형) → **AJ-SR04M**(방수형 5 V 모듈)로 수급. 5 V Echo는 1 kΩ + 2.2 kΩ 분압기로 ESP32 GPIO 보호.
+- **핀 매핑 (현재)**: TRIG=GPIO13, ECHO=GPIO12 (분압 후 입력), MPU6050 SDA=GPIO21 / SCL=GPIO22.
+
+---
+
+## 14. 차후 진행 계획 (Next Steps)
+
+### 14.1 익수자 탐지 알고리즘 (FR-1, 최우선)
+
+- **분산/표준편차 기반 1차 룰** — 최근 N(예: 32) 샘플의 sonar 거리 분산이 임계값 초과 시 후보 이벤트.
+- **IMU 보정 게이트** — 같은 윈도우 가속도 진폭이 함께 큰 경우 "파도"로 판정해 alert 억제.
+- **FFT 기반 주파수 분석 (확장)** — 파도 (~0.5~1 Hz 저주파) vs 익수자 교란 (불규칙 고주파) 구분.
+- **출력 인터페이스** — `TOPIC_ALERT` (confidence 1B), `TOPIC_ALERT_CLEAR` 사용 (이미 정의됨).
+- **새 모듈 제안**: `lib/Detection/DrownDetector.{h,cpp}` — sonar/imu 윈도우 수집, confidence 산출.
+
+### 14.2 전력 관리 (FR-5)
+
+- 평상시 센서 샘플 주기와 LoRa 송신 주기 분리.
+- 교란 미감지 시 `TOPIC_SENSOR_RAW` 송신 빈도 축소 (현재 3 s → 30 s 등).
+- ESP32 light/deep sleep 진입 시 LoRa DI0 인터럽트 wake-up 검토.
+- 송신 파라미터 (`sample_interval_ms`, `tx_interval_ms`, `threshold`)를 `TOPIC_CMD_CONFIG`로 원격 설정.
+
+### 14.3 실 하드웨어 통합 시험
+
+- AJ-SR04M 실측 — 수면 거리 정확도/노이즈 특성 파악 (Wokwi 가정 검증).
+- 부표 A/B/C 3노드 멀티홉 시나리오 — 직접 통신 불가 위치 배치 후 릴레이 검증.
+- 수조 시뮬레이션 — 파도 vs 익수자 교란 패턴 데이터 수집, 임계값 캘리브레이션.
+
+### 14.4 대시보드 보강
+
+- 부표 위치 (지도/2D 좌표) 표시 — 현재는 노드별 상태 카드만.
+- 시계열 차트 (sonar/accel 윈도우) — 알고리즘 디버깅용.
+- 알람 발생 시 브라우저 알림/사운드.
+
+### 14.5 비목표 → 확장 (시간 여유 시)
+
+- **TDOA 위치 추정** — 부표별 alert 타임스탬프 차이 기반 삼각측량.
+- **태양광 + LiPo 충전 회로** — 장기 배포용.
+- **방수 케이스 + 실리콘 밀봉** — 시연용 부유체 제작.
+
+### 14.6 마일스톤 (남은 기간)
+
+| 시점 | 산출물 |
+|------|--------|
+| +3일 | DrownDetector 1차 룰 (분산 + IMU 게이트), 단위 테스트 |
+| +7일 | 실 하드웨어 3노드 멀티홉 시연, 임계값 캘리브레이션 |
+| +10일 | 전력 관리 적용, 대시보드 시계열 차트 |
+| +14일 | 수조 통합 시연 리허설, 발표 자료 |
 
 ---
 
