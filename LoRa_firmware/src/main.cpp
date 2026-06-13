@@ -26,7 +26,7 @@
 #define LORA_DI0 26
 #endif
 
-#define NODE_ID NODE_BUOY_A // ← 업로드 전 여기만 변경
+#define NODE_ID NODE_BUOY_B // ← 업로드 전 여기만 변경
 
 #ifndef CSV_LOG_ENABLED
 #define CSV_LOG_ENABLED 1

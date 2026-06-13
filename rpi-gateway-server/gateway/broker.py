@@ -12,6 +12,7 @@ dispatch(pkt)  — serial_reader 가 패킷 수신마다 호출
 
 import asyncio
 import logging
+from collections import deque
 from typing import Awaitable, Callable
 
 from lib.packet import LoRaAck, LoRaPublish
@@ -21,7 +22,7 @@ logger = logging.getLogger(__name__)
 Callback = Callable[[LoRaPublish], Awaitable[None]]
 
 
-_SEEN_MAX = 512  # 노드당 msg_id가 0~255 순환이므로 넉넉히 설정
+_SEEN_PER_NODE_MAX = 64  # relay 중복만 막고 8-bit msg_id wrap은 허용한다.
 
 
 class Broker:
@@ -29,7 +30,8 @@ class Broker:
         # topic=None は catch-all (모든 LoRaPublish 수신)
         self._subs: list[tuple[int | None, Callback]] = []
         # (node_id, msg_id) 중복 억제 — 직접 수신 + 릴레이 수신이 동시에 도달할 때 방지
-        self._seen: dict[tuple[int, int], None] = {}
+        self._seen_order: dict[int, deque[int]] = {}
+        self._seen_sets: dict[int, set[int]] = {}
 
     def subscribe(self, topic: int, callback: Callback) -> None:
         self._subs.append((topic, callback))
@@ -44,12 +46,10 @@ class Broker:
         if not isinstance(pkt, LoRaPublish):
             return
         key = (pkt.header.node_id, pkt.header.msg_id)
-        if key in self._seen:
+        if self._already_seen(*key):
             logger.debug("duplicate suppressed node=%d msg=%d", *key)
             return
-        self._seen[key] = None
-        if len(self._seen) > _SEEN_MAX:
-            del self._seen[next(iter(self._seen))]
+        self._mark_seen(*key)
         for sub_topic, cb in self._subs:
             if self._matches(sub_topic, pkt.topic):
                 try:
@@ -70,3 +70,17 @@ class Broker:
         if (sub_topic & 0x0F) == 0x00 and (sub_topic >> 4) == (pkt_topic >> 4):
             return True
         return False
+
+    def _already_seen(self, node_id: int, msg_id: int) -> bool:
+        return msg_id in self._seen_sets.get(node_id, set())
+
+    def _mark_seen(self, node_id: int, msg_id: int) -> None:
+        order = self._seen_order.setdefault(node_id, deque())
+        seen = self._seen_sets.setdefault(node_id, set())
+
+        if len(order) >= _SEEN_PER_NODE_MAX:
+            old_msg_id = order.popleft()
+            seen.discard(old_msg_id)
+
+        order.append(msg_id)
+        seen.add(msg_id)
