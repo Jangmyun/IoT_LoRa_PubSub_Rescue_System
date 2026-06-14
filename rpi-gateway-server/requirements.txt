@@ -3,3 +3,7 @@ fastapi
 uvicorn
 websockets
 httpx
+joblib
+numpy
+pandas
+scikit-learn

@@ -35,6 +35,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Defaults to 1s for fast serial CSV, 5s for sparse LoRa CSV.",
     )
+    parser.add_argument(
+        "--cv-folds",
+        type=int,
+        default=5,
+        help="Use stratified K-fold evaluation before fitting the final model.",
+    )
     return parser.parse_args()
 
 
@@ -52,7 +58,12 @@ def main() -> None:
     args.output_dir.mkdir(parents=True, exist_ok=True)
     features.to_csv(args.output_dir / "feature_windows.csv", index=False)
 
-    result = train_candidate_models(features, args.output_dir, feature_config=config.to_dict())
+    result = train_candidate_models(
+        features,
+        args.output_dir,
+        feature_config=config.to_dict(),
+        cv_folds=args.cv_folds,
+    )
     if auto_selected:
         sample_text = "unknown" if sample_seconds is None else f"{sample_seconds:.3f}s"
         print(

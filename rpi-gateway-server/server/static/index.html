@@ -91,6 +91,10 @@
       border-color: var(--red);
       box-shadow: 0 0 18px rgba(248, 81, 73, 0.35);
     }
+    .buoy-card.SUSPECT {
+      border-color: var(--yellow);
+      box-shadow: 0 0 14px rgba(210, 153, 34, 0.25);
+    }
     .buoy-card.NORMAL { border-color: var(--green); }
 
     .buoy-card .card-header {
@@ -107,6 +111,7 @@
       background: var(--muted);
     }
     .status-dot.ALERT { background: var(--red); animation: pulse 0.8s ease-in-out infinite; }
+    .status-dot.SUSPECT { background: var(--yellow); animation: pulse 1.2s ease-in-out infinite; }
     .status-dot.NORMAL { background: var(--green); }
 
     @keyframes pulse {
@@ -147,6 +152,7 @@
       background: var(--bg);
     }
     .status-label.ALERT { color: var(--red); border: 1px solid var(--red); }
+    .status-label.SUSPECT { color: var(--yellow); border: 1px solid var(--yellow); }
     .status-label.NORMAL { color: var(--green); border: 1px solid var(--green); }
 
     /* Event log */
@@ -221,6 +227,7 @@
     .log-entry:last-child { border-bottom: none; }
     .log-entry .ts { color: var(--muted); margin-right: 8px; }
     .log-entry.ALERT .tag { color: var(--red); }
+    .log-entry.SUSPECT .tag { color: var(--yellow); }
     .log-entry.NORMAL .tag { color: var(--green); }
     .log-entry.INFO .tag { color: var(--blue); }
 
@@ -367,18 +374,38 @@
           <span class="label">Alert</span>
           <span class="value">${formatNumber(b.alert_confidence, 0, '%')}</span>
         </div>
+        <div class="metric">
+          <span class="label">ML</span>
+          <span class="value">${b.ml_label || '—'}</span>
+        </div>
+        <div class="metric">
+          <span class="label">Risk</span>
+          <span class="value">${formatRisk(b)}</span>
+        </div>
       </div>
       <div class="stat">RSSI <span>${b.rssi != null ? b.rssi + ' dBm' : '—'}</span></div>
       <div class="stat">SNR <span>${b.snr != null ? b.snr + ' dB' : '—'}</span></div>
       <div class="stat">토픽 <span>0x${b.topic.toString(16).padStart(2,'0')}</span></div>
       <div class="stat">TTL <span>${b.ttl}</span></div>
-      <span class="status-label ${b.status}">${b.status === 'ALERT' ? '⚠ 경보' : '● 정상'}</span>
+      <span class="status-label ${b.status}">${formatStatus(b.status)}</span>
     `;
   }
 
   function formatNumber(value, digits, suffix) {
     if (value == null) return '—';
     return `${Number(value).toFixed(digits)}${suffix}`;
+  }
+
+  function formatRisk(b) {
+    if (!b.ml_risk) return '—';
+    const confidence = b.ml_confidence != null ? ` ${Number(b.ml_confidence).toFixed(0)}%` : '';
+    return `${b.ml_risk}${confidence}`;
+  }
+
+  function formatStatus(status) {
+    if (status === 'ALERT') return '⚠ 경보';
+    if (status === 'SUSPECT') return '주의';
+    return '● 정상';
   }
 
   function updateBanner() {

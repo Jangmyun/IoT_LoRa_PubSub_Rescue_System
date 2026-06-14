@@ -20,14 +20,25 @@ LABEL_ALIASES = {
 }
 
 
-def parse_run_spec(spec: str) -> tuple[Path, str]:
+def parse_run_spec(spec: str) -> tuple[Path, str, str | None]:
     if "=" not in spec:
         raise ValueError("Run spec must be PATH=LABEL, for example csv_result_1.csv=CALM")
     path_text, label_text = spec.split("=", 1)
-    label = LABEL_ALIASES.get(label_text.strip().upper())
+    label_part, buoy_id = _split_label_and_buoy(label_text)
+    label = LABEL_ALIASES.get(label_part.strip().upper())
     if not label:
-        raise ValueError(f"Unknown label {label_text!r}; use one of {sorted(LABEL_ALIASES)}")
-    return Path(path_text), label
+        raise ValueError(f"Unknown label {label_part!r}; use one of {sorted(LABEL_ALIASES)}")
+    return Path(path_text), label, buoy_id
+
+
+def _split_label_and_buoy(label_text: str) -> tuple[str, str | None]:
+    if "@" not in label_text:
+        return label_text, None
+    label, buoy_id = label_text.split("@", 1)
+    buoy_id = buoy_id.strip()
+    if not buoy_id:
+        raise ValueError("Run buoy filter must not be empty; use PATH=LABEL@BUOY_ID")
+    return label, buoy_id
 
 
 def load_collection_csv(path: Path, label: str) -> pd.DataFrame:
@@ -74,7 +85,7 @@ def parse_args() -> argparse.Namespace:
         "--run",
         action="append",
         required=True,
-        help="Input mapping PATH=LABEL. Numeric labels are 0,1,2,3.",
+        help="Input mapping PATH=LABEL or PATH=LABEL@BUOY_ID. Numeric labels are 0,1,2,3.",
     )
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument(
@@ -96,8 +107,10 @@ def main() -> None:
     args = parse_args()
     frames = []
     for spec in args.run:
-        path, label = parse_run_spec(spec)
+        path, label, buoy_id = parse_run_spec(spec)
         frame = load_collection_csv(path, label)
+        if buoy_id is not None:
+            frame = filter_by_buoy_id(frame, buoy_id, path)
         frame = trim_by_elapsed_seconds(frame, args.trim_start_seconds, args.trim_end_seconds)
         frame["source_file"] = path.name
         frames.append(frame)
@@ -113,6 +126,14 @@ def _normalize_row(row: dict[str, str], label: str) -> dict[str, str]:
     normalized = {column: str(row.get(column, "")).strip() for column in CSV_COLUMNS}
     normalized["label"] = label
     return normalized
+
+
+def filter_by_buoy_id(frame: pd.DataFrame, buoy_id: str, path: Path) -> pd.DataFrame:
+    filtered = frame[frame["buoy_id"].astype(str) == str(buoy_id)].copy()
+    if filtered.empty:
+        available = sorted(frame["buoy_id"].astype(str).unique())
+        raise ValueError(f"No rows for buoy_id={buoy_id!r} in {path}; available={available}")
+    return filtered
 
 
 if __name__ == "__main__":
