@@ -7,6 +7,9 @@ TOPIC_ALERT_CLEAR = 0x11
 TOPIC_HEARTBEAT = 0x20
 TOPIC_SENSOR_RAW = 0x21
 
+# Heartbeat status 바이트 비트 정의 (펌웨어 main.cpp와 동기화)
+HB_STATUS_DEGRADED = 0x01
+
 
 def _payload(packet: Mapping[str, Any]) -> list[int]:
     value = packet.get("payload") or []
@@ -44,6 +47,7 @@ def decode_payload(packet: Mapping[str, Any]) -> dict[str, Any]:
             decoded["battery_pct"] = payload[0]
         if len(payload) >= 2:
             decoded["device_status"] = payload[1]
+            decoded["relay_only"] = bool(payload[1] & HB_STATUS_DEGRADED)
         return decoded
 
     if topic == TOPIC_ALERT:
@@ -78,7 +82,11 @@ def build_buoy_state(
             "snr": packet.get("snr"),
         }
     )
-    state.update(decode_payload(packet))
+    decoded = decode_payload(packet)
+    # relay_only는 한 번 True가 되면 sticky (펌웨어도 latch).
+    previous_relay_only = bool(previous.get("relay_only"))
+    state.update(decoded)
+    state["relay_only"] = previous_relay_only or bool(decoded.get("relay_only", False))
     return state
 
 
@@ -107,7 +115,11 @@ def build_event(
         accel = state.get("accel_ms2")
         event["text"] = f"부표 {packet['node_id']} sensor sonar={sonar}cm accel={accel}m/s2"
     elif topic == TOPIC_HEARTBEAT:
-        event["text"] = f"부표 {packet['node_id']} heartbeat battery={state.get('battery_pct')}%"
+        degraded_suffix = " (relay-only)" if state.get("relay_only") else ""
+        event["text"] = (
+            f"부표 {packet['node_id']} heartbeat battery={state.get('battery_pct')}%"
+            f"{degraded_suffix}"
+        )
     elif topic == TOPIC_ALERT:
         event["text"] = f"부표 {packet['node_id']} alert confidence={state.get('alert_confidence')}%"
     elif topic == TOPIC_ALERT_CLEAR:

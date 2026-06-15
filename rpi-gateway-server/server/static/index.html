@@ -155,6 +155,20 @@
     .status-label.SUSPECT { color: var(--yellow); border: 1px solid var(--yellow); }
     .status-label.NORMAL { color: var(--green); border: 1px solid var(--green); }
 
+    .relay-badge {
+      display: inline-block;
+      margin-left: 8px;
+      padding: 2px 8px;
+      border-radius: 20px;
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      color: var(--yellow);
+      border: 1px solid var(--yellow);
+      background: var(--bg);
+    }
+    .buoy-card.relay-only { border-color: var(--yellow); }
+
     /* Event log */
     #recording-section {
       background: var(--surface);
@@ -350,10 +364,11 @@
       card.className = 'buoy-card';
       grid.appendChild(card);
     }
-    card.className = `buoy-card ${b.status}`;
+    card.className = `buoy-card ${b.status}${b.relay_only ? ' relay-only' : ''}`;
+    const relayBadge = b.relay_only ? '<span class="relay-badge">RELAY ONLY</span>' : '';
     card.innerHTML = `
       <div class="card-header">
-        <span class="card-title">부표 ${b.node_id}</span>
+        <span class="card-title">부표 ${b.node_id}${relayBadge}</span>
         <span class="status-dot ${b.status}"></span>
       </div>
       <div class="stat">마지막 수신 <span>${b.last_seen}</span></div>

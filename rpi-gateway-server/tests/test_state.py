@@ -56,6 +56,29 @@ class StateTests(unittest.TestCase):
         self.assertEqual(state["battery_pct"], 78)
         self.assertEqual(state["sonar_cm"], 52)
         self.assertEqual(state["accel_ms2"], 12.4)
+        self.assertFalse(state["relay_only"])
+
+    def test_heartbeat_degraded_bit_sets_relay_only_and_latches(self):
+        degraded_hb = {
+            "node_id": 3,
+            "msg_type": "PUBLISH",
+            "topic": TOPIC_HEARTBEAT,
+            "ttl": 3,
+            "payload": [60, 0x01],
+        }
+        state = build_buoy_state(degraded_hb, previous=None, now=NOW)
+        self.assertTrue(state["relay_only"])
+
+        # heartbeat가 아닌 후속 패킷에서도 sticky하게 유지된다.
+        relay_pkt = {
+            "node_id": 3,
+            "msg_type": "RELAY",
+            "topic": TOPIC_SENSOR_RAW,
+            "ttl": 2,
+            "payload": [40, 100],
+        }
+        next_state = build_buoy_state(relay_pkt, state, now=NOW)
+        self.assertTrue(next_state["relay_only"])
 
     def test_alert_and_clear_change_status(self):
         alert_packet = {
