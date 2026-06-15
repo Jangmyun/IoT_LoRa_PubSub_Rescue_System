@@ -14,6 +14,9 @@ public:
     // 등록된 모든 센서 begin() 호출. 성공한 센서 수 반환.
     uint8_t beginAll();
 
+    // 아직 준비되지 않은 센서만 begin() 재시도. 새로 성공한 센서 수 반환.
+    uint8_t retryFailed();
+
     // 초기화에 성공한 센서만 read() 호출. 읽기 성공 수 반환.
     uint8_t readAll();
 

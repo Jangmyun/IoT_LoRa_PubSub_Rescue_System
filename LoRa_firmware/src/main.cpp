@@ -57,6 +57,11 @@
 #define SENSOR_FAULT_THRESHOLD 5
 #endif
 
+// 부팅 후 센서 begin() 재시도 허용 시간. 이 안에 성공하면 relay-only 진입 안 함.
+#ifndef SENSOR_GRACE_PERIOD_MS
+#define SENSOR_GRACE_PERIOD_MS 10000
+#endif
+
 // Heartbeat status 바이트의 강등 비트.
 #define HB_STATUS_DEGRADED 0x01
 
@@ -139,14 +144,10 @@ void setup()
                   sensors_ready, sensors.count());
     Serial.println(sensors.isReady(0)
                        ? "[OK] Sonar pins configured (TRIG=GPIO13, ECHO=GPIO12; distance validates on read)"
-                       : "[WARN] Sonar pin setup failed");
+                       : "[WARN] Sonar pin setup failed — will retry for grace period");
     Serial.println(sensors.isReady(1)
                        ? "[OK] IMU detected on I2C (MPU6050, SDA=GPIO21, SCL=GPIO22)"
-                       : "[WARN] IMU not detected on I2C (MPU6050, SDA=GPIO21, SCL=GPIO22); skipping IMU reads");
-
-    // 시작 시점에 어느 한쪽 센서라도 초기화에 실패했다면 즉시 relay 전용 모드.
-    if (!sensors.isReady(0)) enterRelayOnlyMode("sonar begin failed");
-    if (!sensors.isReady(1)) enterRelayOnlyMode("imu begin failed");
+                       : "[WARN] IMU not detected on I2C — will retry for grace period");
     Serial.printf("[INFO] LoRaPublish max: %d bytes\n", sizeof(LoRaPublish));
     Serial.printf("[INFO] sensor sample interval: %d ms\n", SENSOR_SAMPLE_INTERVAL_MS);
     Serial.println(DEMO_ALERT_ENABLED
@@ -159,6 +160,31 @@ void loop()
 {
     if (lora_ok)
         pubsub.tick(); // relay 처리는 강등 여부와 무관하게 항상 수행
+
+    // ── 센서 grace period 재시도 ─────────────────────────────────────
+    // setup()에서 begin()이 실패한 센서를 500ms마다 재시도한다.
+    // SENSOR_GRACE_PERIOD_MS 내에 성공하면 정상 모드 유지.
+    // 만료 시에도 실패한 센서가 남으면 그 때 relay-only로 latch한다.
+    static bool sensor_grace_done = false;
+    if (!sensor_grace_done) {
+        if (sensors.readyCount() < sensors.count()) {
+            if (millis() <= SENSOR_GRACE_PERIOD_MS) {
+                static uint32_t last_begin_retry = 0;
+                if (millis() - last_begin_retry >= 500) {
+                    uint8_t recovered = sensors.retryFailed();
+                    if (recovered > 0)
+                        Serial.printf("[INFO] %d sensor(s) recovered during grace period\n", recovered);
+                    last_begin_retry = millis();
+                }
+            } else {
+                sensor_grace_done = true;
+                if (!sensors.isReady(0)) enterRelayOnlyMode("sonar begin timeout");
+                if (!sensors.isReady(1)) enterRelayOnlyMode("imu begin timeout");
+            }
+        } else {
+            sensor_grace_done = true;
+        }
+    }
 
     // 학습 데이터 수집용: 2초 feature window를 만들 수 있도록 10Hz raw sample을 남긴다.
     // 강등 후에는 센서 read/CSV/raw publish를 모두 건너뛴다.
