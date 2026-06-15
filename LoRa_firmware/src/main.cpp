@@ -52,12 +52,30 @@
 #define DATASET_LABEL ""
 #endif
 
+// 센서 한 개라도 연속 read 실패가 임계치를 넘으면 relay 전용 모드로 강등한다.
+#ifndef SENSOR_FAULT_THRESHOLD
+#define SENSOR_FAULT_THRESHOLD 5
+#endif
+
+// Heartbeat status 바이트의 강등 비트.
+#define HB_STATUS_DEGRADED 0x01
+
 LoRaPubSub pubsub(NODE_ID);
 SonarSensor sonar(13, 12); // TRIG=GPIO13, ECHO=GPIO12
 ImuSensor imu;             // I2C SDA=GPIO21, SCL=GPIO22
 SensorManager sensors;
 
-static bool lora_ok = false; // LoRa 초기화 성공 여부, LoRa 관련 코드 전체 가드용
+static bool lora_ok = false;          // LoRa 초기화 성공 여부, LoRa 관련 코드 전체 가드용
+static bool relay_only_mode = false;  // 센서 고장 시 latch: heartbeat + relay만 송신
+static uint8_t sonar_fail_streak = 0; // 초음파 연속 read 실패 카운트
+static uint8_t imu_fail_streak = 0;   // 가속도 연속 read 실패 카운트
+
+static void enterRelayOnlyMode(const char *reason)
+{
+    if (relay_only_mode) return;
+    relay_only_mode = true;
+    Serial.printf("[DEGRADE] entering relay-only mode: %s\n", reason);
+}
 
 static void printCsvHeader()
 {
@@ -125,6 +143,10 @@ void setup()
     Serial.println(sensors.isReady(1)
                        ? "[OK] IMU detected on I2C (MPU6050, SDA=GPIO21, SCL=GPIO22)"
                        : "[WARN] IMU not detected on I2C (MPU6050, SDA=GPIO21, SCL=GPIO22); skipping IMU reads");
+
+    // 시작 시점에 어느 한쪽 센서라도 초기화에 실패했다면 즉시 relay 전용 모드.
+    if (!sensors.isReady(0)) enterRelayOnlyMode("sonar begin failed");
+    if (!sensors.isReady(1)) enterRelayOnlyMode("imu begin failed");
     Serial.printf("[INFO] LoRaPublish max: %d bytes\n", sizeof(LoRaPublish));
     Serial.printf("[INFO] sensor sample interval: %d ms\n", SENSOR_SAMPLE_INTERVAL_MS);
     Serial.println(DEMO_ALERT_ENABLED
@@ -136,15 +158,27 @@ void setup()
 void loop()
 {
     if (lora_ok)
-        pubsub.tick();
+        pubsub.tick(); // relay 처리는 강등 여부와 무관하게 항상 수행
 
     // 학습 데이터 수집용: 2초 feature window를 만들 수 있도록 10Hz raw sample을 남긴다.
+    // 강등 후에는 센서 read/CSV/raw publish를 모두 건너뛴다.
     static uint32_t last_sensor = 0;
-    if (millis() - last_sensor >= SENSOR_SAMPLE_INTERVAL_MS)
+    if (!relay_only_mode && millis() - last_sensor >= SENSOR_SAMPLE_INTERVAL_MS)
     {
         bool sonar_ok = sensors.isReady(0) && sonar.read();
         bool imu_ok = sensors.isReady(1) && imu.read();
         uint8_t reads_ok = (sonar_ok ? 1 : 0) + (imu_ok ? 1 : 0);
+
+        if (sensors.isReady(0)) {
+            sonar_fail_streak = sonar_ok ? 0 : sonar_fail_streak + 1;
+            if (sonar_fail_streak >= SENSOR_FAULT_THRESHOLD)
+                enterRelayOnlyMode("sonar read fault streak");
+        }
+        if (sensors.isReady(1)) {
+            imu_fail_streak = imu_ok ? 0 : imu_fail_streak + 1;
+            if (imu_fail_streak >= SENSOR_FAULT_THRESHOLD)
+                enterRelayOnlyMode("imu read fault streak");
+        }
 
         printSensorCsv(sonar_ok, imu_ok);
 
@@ -177,21 +211,22 @@ void loop()
         return; // 아래는 LoRa 필요 구간
 
 #if DEMO_HEARTBEAT_ENABLED
-    // 5초마다 하트비트 (QoS 0)
+    // 5초마다 하트비트 (QoS 0). 강등 시 status 바이트에 표시.
     static uint32_t last_hb = 0;
     if (millis() - last_hb > 5000)
     {
-        uint8_t payload[2] = {75, 0x00};
+        uint8_t status = relay_only_mode ? HB_STATUS_DEGRADED : 0x00;
+        uint8_t payload[2] = {75, status};
         pubsub.publish(TOPIC_HEARTBEAT, payload, 2);
-        Serial.println("[PUB] Heartbeat");
+        Serial.printf("[PUB] Heartbeat%s\n", relay_only_mode ? " (degraded)" : "");
         last_hb = millis();
     }
 #endif
 
 #if DEMO_ALERT_ENABLED
-    // 10초마다 경보 (QoS 1)
+    // 10초마다 경보 (QoS 1). 강등 모드에서는 자체 alert 발행 금지.
     static uint32_t last_alert = 0;
-    if (millis() - last_alert > 10000)
+    if (!relay_only_mode && millis() - last_alert > 10000)
     {
         uint8_t payload[1] = {90};
         bool ok = pubsub.publish(TOPIC_ALERT, payload, 1, true);
