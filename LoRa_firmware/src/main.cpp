@@ -229,8 +229,8 @@ void loop()
     if (!relay_only_mode && millis() - last_alert > 10000)
     {
         uint8_t payload[1] = {90};
-        bool ok = pubsub.publish(TOPIC_ALERT, payload, 1, true);
-        Serial.printf("[PUB] ALERT -> %s\n", ok ? "ACK OK" : "FAILED");
+        bool enqueued = pubsub.publish(TOPIC_ALERT, payload, 1, true);
+        Serial.printf("[PUB] ALERT -> %s\n", enqueued ? "enqueued" : "outbox full");
         last_alert = millis();
     }
 #endif
