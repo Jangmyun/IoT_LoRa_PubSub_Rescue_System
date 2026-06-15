@@ -198,7 +198,7 @@
 
 ---
 
-## 13. 현재 구현 현황 (as of 2026-06-13)
+## 13. 현재 구현 현황 (as of 2026-06-15)
 
 ### 13.1 완료 — 부표 펌웨어 (LoRa_firmware)
 
@@ -207,12 +207,13 @@
 | PlatformIO 프로젝트 구성 | `LoRa_firmware/platformio.ini` | TTGO LoRa32 + native 테스트 환경 |
 | LoRaPubSub 라이브러리 | `lib/LoRaPubSub/` | 헤더 + 구현 분리, PlatformIO 라이브러리 형식 |
 | 패킷 포맷 설계 | `LoRaPubSub.h` | 13.4 설계 변경 사항 참고 |
-| PUBLISH / ACK / RELAY 송수신 | `LoRaPubSub.cpp` | QoS 0 (fire-and-forget), QoS 1 (ACK 대기) |
+| PUBLISH / ACK / RELAY 송수신 | `LoRaPubSub.cpp` | QoS 0 (fire-and-forget), QoS 1 (non-blocking outbox 큐) |
+| QoS-1 비동기 outbox 큐 | `LoRaPubSub.cpp` / `LoRaPubSub.h` | `OutboxEntry` 슬롯 4개, `tick()`마다 전송·재전송·만료 드롭 처리 |
 | TTL 기반 멀티홉 릴레이 | `LoRaPubSub.cpp` | TTL 감소, MSG_RELAY 전환 (src node_id 보존) |
-| 중복 패킷 억제 | `LoRaPubSub.cpp` | `{node_id, msg_id}` 링버퍼 (16 슬롯) |
+| 중복 패킷 억제 | `LoRaPubSub.cpp` | `{node_id, msg_id}` 링버퍼 (16 슬롯), ACK는 억제 대상 제외 |
 | 토픽 와일드카드 구독 | `LoRaPubSub.cpp` | 상위 니블 일치 시 카테고리 전체 수신 |
 | 가변 길이 패킷 조립 | `LoRaPubSub.cpp` | 페이로드 길이만큼만 송수신, CRC 위치 동적 계산 |
-| Mock 기반 유닛테스트 (13개) | `test/test_loraPubSub/` | native 환경, 하드웨어 불필요 |
+| Mock 기반 유닛테스트 (19개) | `test/test_loraPubSub/` | native 환경, 하드웨어 불필요 (T14~T19: outbox 시나리오 추가) |
 | 노드별 NODE_ID 빌드 변경 용이성 | `src/main.cpp` | 단일 매크로 변경으로 A/B/C 빌드 분리 |
 | Relay-only 강등 로직 (FR-6) | `src/main.cpp` | 센서 begin/연속 read 실패 감지 → latch, heartbeat status bit0로 표시 |
 
@@ -231,7 +232,7 @@
 
 | 항목 | 파일 | 비고 |
 |------|------|------|
-| ESP32 수신 게이트웨이 펌웨어 | `LoRa_firmware/src/gateway_main.cpp` | LoRa 수신 → CRC 검증 → 바이너리 Serial 출력 (RSSI/SNR 부가) |
+| ESP32 수신 게이트웨이 펌웨어 | `LoRa_firmware/src/gateway_main.cpp` | LoRa 수신 → CRC 검증 → `LoRaAck` 즉시 전송 → 바이너리 Serial 출력 (RSSI/SNR 부가) |
 | Serial 패킷 리더 | `gateway/serial_reader.py` | 프리앰블 동기화, 가변 길이 패킷 파싱 |
 | Broker (asyncio) | `gateway/broker.py` | `(node_id, msg_id)` 중복 억제, async fanout |
 | Gateway entry | `gateway/main.py` | `serial → broker → POST /api/packet` |
@@ -257,6 +258,8 @@ PRD의 원안 `[version | type | topic_len | topic | payload_len | payload | crc
 - **preamble 추가 (0xAB)**: LoRa 수신 시 노이즈 패킷 1차 필터링
 - **가변 길이 송신**: 페이로드 실제 사용량만 송신, CRC 위치는 `pld_len` 기반으로 동적 계산
 - **HEARTBEAT status 바이트 비트 정의**: bit0 = `HB_STATUS_DEGRADED(0x01)` — 센서 고장 강등 노드 식별용. payload 길이(`battery 1B + status 1B`) 변동 없음.
+- **QoS-1 non-blocking 전환**: `publish(ack_required=true)` 호출 시 블로킹 ACK 대기 루프 제거. 패킷을 `OutboxEntry` 슬롯(4개)에 enqueue하고 즉시 반환. `tick()` 호출마다 `_processOutbox()`가 첫 전송·타임아웃 재전송(`LP_ACK_TIMEOUT_MS=800ms`)·최대 재시도(`LP_MAX_RETRIES=3`) 초과 드롭을 처리한다.
+- **게이트웨이 ACK 전송**: 게이트웨이 MCU(`gateway_main.cpp`)가 CRC 통과 즉시 `LoRaAck`를 LoRa로 브로드캐스트. ACK의 `node_id=NODE_PI(0x00)`, `ttl=1`. **알려진 제약**: ACK는 현재 릴레이되지 않으므로, 게이트웨이와 직접 통신이 불가능한 멀티홉 노드는 ACK를 수신하지 못해 `LP_MAX_RETRIES`까지 재전송 후 드롭된다.
 
 ### 13.5 하드웨어 변경 사항 (PRD §5 대비)
 
