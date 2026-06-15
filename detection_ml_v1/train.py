@@ -7,8 +7,14 @@ from pathlib import Path
 import pandas as pd
 
 from rescue_detection_ml.config import resolve_feature_config
-from rescue_detection_ml.features import build_feature_table
+from rescue_detection_ml.features import ACCEL_FEATURE_COLUMNS, FEATURE_COLUMNS, build_feature_table
 from rescue_detection_ml.modeling import train_candidate_models
+
+
+FEATURE_SETS = {
+    "default": FEATURE_COLUMNS,
+    "accel": ACCEL_FEATURE_COLUMNS,
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -41,7 +47,17 @@ def parse_args() -> argparse.Namespace:
         default=5,
         help="Use stratified K-fold evaluation before fitting the final model.",
     )
+    parser.add_argument(
+        "--feature-set",
+        choices=sorted(FEATURE_SETS),
+        default="default",
+        help="Feature group to train with. Use 'accel' to exclude sonar-derived ML features.",
+    )
     return parser.parse_args()
+
+
+def resolve_feature_columns(feature_set: str) -> list[str]:
+    return list(FEATURE_SETS[feature_set])
 
 
 def main() -> None:
@@ -61,6 +77,7 @@ def main() -> None:
     result = train_candidate_models(
         features,
         args.output_dir,
+        feature_columns=resolve_feature_columns(args.feature_set),
         feature_config=config.to_dict(),
         cv_folds=args.cv_folds,
     )

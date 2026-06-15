@@ -36,6 +36,17 @@ timestamp_ms,buoy_id,sonar_cm,accel_mag_ms2,label
 
 `sonar_z`와 `accel_z`는 최근 30분 baseline window의 median/MAD 대비 robust z-score입니다.
 
+욕조 실험 v2부터는 sonar를 ML 입력에서 제외하고, accel 계열 feature만 사용합니다.
+sonar는 이후 별도 rule-based 조건으로 분리합니다.
+
+```text
+accel_z
+accel_mean_ms2
+accel_rms_2s
+accel_range_2s
+accel_jerk_2s
+```
+
 ## Run
 
 ```bash
@@ -138,4 +149,38 @@ python detection_ml_v1/prepare_labeled_dataset.py \
 
 python detection_ml_v1/train.py \
   --csv detection_ml_v1/example_data/lake_labeled.csv
+```
+
+## Bath accel-only v2
+
+현재 웹 서버 기본 모델은 `detection_ml_v1/models/bath_accel_only_v2/model.joblib`입니다.
+라벨은 3개로 학습하지만, 웹사이트 표시는 2가지 상태로 단순화합니다.
+
+- `CALM`, `ENVIRONMENTAL_WAVE`: 사람이 빠졌다는 근거 없음 -> `NORMAL`
+- `DUMMY_SPLASH`: 사람이 빠졌을 수도 있음 -> `SUSPECT`
+- `sonar_cm <= 25`: sonar rule-based 근접 감지 -> `SUSPECT`
+
+sonar threshold는 서버 실행 시 환경변수로 조정할 수 있습니다.
+
+```bash
+SONAR_DISTANCE_THRESHOLD_CM=25 ./run.sh
+```
+
+```bash
+python detection_ml_v1/prepare_labeled_dataset.py \
+  --run detection_ml_v1/tests/csv_result_002_idle.csv=CALM \
+  --run detection_ml_v1/tests/csv_result_003_wave.csv=ENVIRONMENTAL_WAVE \
+  --run detection_ml_v1/tests/csv_result_004_victim.csv=DUMMY_SPLASH \
+  --run detection_ml_v1/tests/csv_result_005.csv=CALM \
+  --run detection_ml_v1/tests/csv_result_006.csv=ENVIRONMENTAL_WAVE \
+  --run detection_ml_v1/tests/csv_result_007.csv=DUMMY_SPLASH \
+  --trim-start-seconds 5 \
+  --trim-end-seconds 2 \
+  --output detection_ml_v1/example_data/bath_accel_labeled_v2.csv
+
+python detection_ml_v1/train.py \
+  --csv detection_ml_v1/example_data/bath_accel_labeled_v2.csv \
+  --output-dir detection_ml_v1/artifacts/bath_accel_only_v2 \
+  --feature-set accel \
+  --cv-folds 5
 ```
