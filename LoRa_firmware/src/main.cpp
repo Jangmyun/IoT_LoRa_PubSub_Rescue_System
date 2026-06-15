@@ -93,9 +93,8 @@ void setup()
     Serial.begin(115200);
     delay(1000); // Wokwi 터미널 연결 대기
     Serial.println("[BOOT] starting...");
-    Serial.flush(); // 버퍼 강제 출력
+    Serial.flush();
 
-    // Serial 확인 후 LoRa 초기화
     SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS);
     LoRa.setPins(LORA_SS, LORA_RST, LORA_DI0);
 
@@ -108,7 +107,6 @@ void setup()
     }
     else
     {
-        // Wokwi 시뮬레이션: SX1276 칩 없음 → 센서 전용 모드로 동작
         Serial.println("[WARN] LoRa not found — sensor-only mode (Wokwi?)");
     }
 
@@ -138,7 +136,6 @@ void loop()
     if (lora_ok)
         pubsub.tick();
 
-    // 학습 데이터 수집용: 2초 feature window를 만들 수 있도록 10Hz raw sample을 남긴다.
     static uint32_t last_sensor = 0;
     if (millis() - last_sensor >= SENSOR_SAMPLE_INTERVAL_MS)
     {
@@ -174,10 +171,9 @@ void loop()
     }
 
     if (!lora_ok)
-        return; // 아래는 LoRa 필요 구간
+        return;
 
 #if DEMO_HEARTBEAT_ENABLED
-    // 5초마다 하트비트 (QoS 0)
     static uint32_t last_hb = 0;
     if (millis() - last_hb > 5000)
     {
@@ -189,13 +185,12 @@ void loop()
 #endif
 
 #if DEMO_ALERT_ENABLED
-    // 10초마다 경보 (QoS 1)
     static uint32_t last_alert = 0;
     if (millis() - last_alert > 10000)
     {
         uint8_t payload[1] = {90};
-        bool ok = pubsub.publish(TOPIC_ALERT, payload, 1, true);
-        Serial.printf("[PUB] ALERT -> %s\n", ok ? "ACK OK" : "FAILED");
+        bool enqueued = pubsub.publish(TOPIC_ALERT, payload, 1, true);
+        Serial.printf("[PUB] ALERT -> %s\n", enqueued ? "enqueued" : "outbox full");
         last_alert = millis();
     }
 #endif

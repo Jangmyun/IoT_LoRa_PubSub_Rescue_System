@@ -27,6 +27,23 @@ static uint8_t _crc8_gw(const uint8_t* data, uint8_t len) {
     return crc;
 }
 
+static void _sendAck(uint8_t ack_msg_id) {
+    LoRaAck ack{};
+    ack.header.preamble = LP_PREAMBLE;
+    ack.header.msg_type = MSG_ACK;
+    ack.header.node_id  = NODE_PI;
+    ack.header.msg_id   = 0;
+    ack.header.ttl      = 1;
+    ack.ack_msg_id      = ack_msg_id;
+    // CRC: header(5B) + ack_msg_id(1B) = 6B
+    ack.crc8 = _crc8_gw(reinterpret_cast<uint8_t*>(&ack), sizeof(LoRaAck) - 1);
+
+    LoRa.beginPacket();
+    LoRa.write(reinterpret_cast<uint8_t*>(&ack), sizeof(LoRaAck));
+    LoRa.endPacket();
+    LoRa.receive();
+}
+
 void setup() {
     Serial.begin(115200);
 
@@ -67,6 +84,9 @@ void loop() {
 
     // 펌웨어에서 CRC 검증 — 깨진 패킷을 사전에 걸러냄
     if (_crc8_gw(raw, crc_offset) != raw[crc_offset]) return;
+
+    // CRC 통과 = LoRa hop 전달 보장 → ACK 즉시 반환
+    _sendAck(raw[3]); // raw[3] = LoRaHeader.msg_id
 
     // 가변 길이 raw → 정규화된 LoRaPublish 구조체로 변환
     LoRaPublish pkt{};

@@ -20,6 +20,14 @@ FEATURE_COLUMNS = [
     "accel_jerk_2s",
 ]
 
+ACCEL_FEATURE_COLUMNS = [
+    "accel_z",
+    "accel_mean_ms2",
+    "accel_rms_2s",
+    "accel_range_2s",
+    "accel_jerk_2s",
+]
+
 
 @dataclass(frozen=True)
 class DetectionFeatureConfig:

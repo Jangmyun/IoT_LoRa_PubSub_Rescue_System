@@ -6,7 +6,11 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from rescue_detection_ml.features import DetectionFeatureConfig, build_feature_table  # noqa: E402
+from rescue_detection_ml.features import (  # noqa: E402
+    ACCEL_FEATURE_COLUMNS,
+    DetectionFeatureConfig,
+    build_feature_table,
+)
 from rescue_detection_ml.modeling import predict_feature_table, train_candidate_models  # noqa: E402
 from rescue_detection_ml.synthetic import make_synthetic_measurements  # noqa: E402
 
@@ -34,6 +38,24 @@ class ModelingTests(unittest.TestCase):
             self.assertGreaterEqual(int(result.metrics.iloc[0]["cv_folds"]), 2)
             self.assertEqual(result.bundle["feature_config"]["window_seconds"], 2.0)
             self.assertGreaterEqual(result.bundle["cv_folds"], 2)
+
+    def test_trains_with_accel_only_feature_columns(self):
+        raw = make_synthetic_measurements(minutes=9.0)
+        config = DetectionFeatureConfig(min_baseline_windows=3)
+        features = build_feature_table(raw, config)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = train_candidate_models(
+                features,
+                tmpdir,
+                feature_columns=ACCEL_FEATURE_COLUMNS,
+                feature_config=config.to_dict(),
+            )
+
+            self.assertEqual(result.bundle["feature_columns"], ACCEL_FEATURE_COLUMNS)
+            self.assertTrue(
+                all(not column.startswith("sonar") for column in result.bundle["feature_columns"])
+            )
 
     def test_prediction_keeps_rule_based_sensor_fault(self):
         raw = make_synthetic_measurements(minutes=9.0)

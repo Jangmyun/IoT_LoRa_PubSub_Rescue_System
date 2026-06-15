@@ -2,3 +2,10 @@ artifacts/
 example_data/
 __pycache__/
 *.pyc
+
+# Keep only report-ready test-set graphs in git.
+!artifacts/
+artifacts/*
+!artifacts/test_set_eval_v1/
+artifacts/test_set_eval_v1/*
+!artifacts/test_set_eval_v1/*.png

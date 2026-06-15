@@ -8,6 +8,7 @@ LoRaPubSub::LoRaPubSub(uint8_t node_id)
     memset(_sub_topics, 0, sizeof(_sub_topics));
     memset(_sub_cbs, 0, sizeof(_sub_cbs));
     memset(_seen, 0, sizeof(_seen));
+    memset(_outbox, 0, sizeof(_outbox));
 }
 
 void LoRaPubSub::begin() {
@@ -38,23 +39,9 @@ bool LoRaPubSub::publish(uint8_t topic,
         return true;
     }
 
-    for (uint8_t attempt = 0; attempt < LP_MAX_RETRIES; attempt++) {
-        _sendPublish(pkt);
-        uint32_t deadline = millis() + 800;
-        while (millis() < deadline) {
-            int size = LoRa.parsePacket();
-            if (size >= (int)sizeof(LoRaAck)) {
-                LoRaAck ack{};
-                LoRa.readBytes(reinterpret_cast<uint8_t*>(&ack), sizeof(LoRaAck));
-                if (ack.header.preamble == LP_PREAMBLE &&
-                    ack.header.msg_type == MSG_ACK &&
-                    ack.ack_msg_id == pkt.header.msg_id) {
-                    return true;
-                }
-            }
-        }
-    }
-    return false;
+    // QoS 1: outbox에 enqueue하고 즉시 반환 (non-blocking).
+    // tick()에서 ACK 수신 시 해제하고, 타임아웃 시 재전송·만료 시 드롭한다.
+    return _enqueue(pkt);
 }
 
 void LoRaPubSub::subscribe(uint8_t topic, LoRaRxCallback cb) {
@@ -66,24 +53,33 @@ void LoRaPubSub::subscribe(uint8_t topic, LoRaRxCallback cb) {
 
 void LoRaPubSub::tick() {
     int size = LoRa.parsePacket();
-    // 최소 패킷: 헤더(5B) + topic(1B) + pld_len(1B) + crc8(1B) = 8B
-    if (size < (int)(sizeof(LoRaHeader) + 3)) return;
 
-    LoRaPublish pkt{};
-    LoRa.readBytes(reinterpret_cast<uint8_t*>(&pkt),
-        min((int)sizeof(LoRaPublish), size));
+    // ACK(7B)와 PUBLISH 최소(8B) 중 작은 값으로 하한을 설정
+    if (size >= (int)sizeof(LoRaAck)) {
+        LoRaPublish pkt{};
+        LoRa.readBytes(reinterpret_cast<uint8_t*>(&pkt),
+            min((int)sizeof(LoRaPublish), size));
 
-    if (pkt.header.preamble != LP_PREAMBLE) return;
-    if (pkt.header.node_id == _node_id) return;
-
-    if (_alreadySeen(pkt.header.node_id, pkt.header.msg_id)) return;
-    _markSeen(pkt.header.node_id, pkt.header.msg_id);
-
-    if (pkt.header.msg_type == MSG_PUBLISH ||
-        pkt.header.msg_type == MSG_RELAY) {
-        _handleIncoming(pkt);
-        if (pkt.header.ttl > 1) _relay(pkt);
+        if (pkt.header.preamble == LP_PREAMBLE &&
+            pkt.header.node_id != _node_id)
+        {
+            if (pkt.header.msg_type == MSG_ACK) {
+                // ACK는 중복 억제 대상이 아님 — outbox에서 해당 msg_id 슬롯을 해제
+                const LoRaAck* ack = reinterpret_cast<const LoRaAck*>(&pkt);
+                _ackOutbox(ack->ack_msg_id);
+            } else if ((pkt.header.msg_type == MSG_PUBLISH ||
+                        pkt.header.msg_type == MSG_RELAY) &&
+                       size >= (int)(sizeof(LoRaHeader) + 3)) {
+                if (!_alreadySeen(pkt.header.node_id, pkt.header.msg_id)) {
+                    _markSeen(pkt.header.node_id, pkt.header.msg_id);
+                    _handleIncoming(pkt);
+                    if (pkt.header.ttl > 1) _relay(pkt);
+                }
+            }
+        }
     }
+
+    _processOutbox();
 }
 
 void LoRaPubSub::_handleIncoming(const LoRaPublish& pkt) {
@@ -151,4 +147,57 @@ uint8_t LoRaPubSub::_crc8(const uint8_t* data, uint8_t len) {
             crc = (crc & 0x80) ? (crc << 1) ^ 0x31 : (crc << 1);
     }
     return crc;
+}
+
+bool LoRaPubSub::_enqueue(const LoRaPublish& pkt) {
+    for (uint8_t i = 0; i < LP_OUTBOX_SIZE; i++) {
+        if (!_outbox[i].in_use) {
+            _outbox[i].pkt          = pkt;
+            _outbox[i].last_sent_ms = 0;
+            _outbox[i].retry_count  = 0;
+            _outbox[i].in_use       = true;
+            return true;
+        }
+    }
+    return false; // outbox 가득 참
+}
+
+void LoRaPubSub::_ackOutbox(uint8_t ack_msg_id) {
+    for (uint8_t i = 0; i < LP_OUTBOX_SIZE; i++) {
+        if (_outbox[i].in_use &&
+            _outbox[i].pkt.header.msg_id == ack_msg_id) {
+            _outbox[i].in_use = false;
+            return;
+        }
+    }
+}
+
+void LoRaPubSub::_processOutbox() {
+    for (uint8_t i = 0; i < LP_OUTBOX_SIZE; i++) {
+        if (!_outbox[i].in_use) continue;
+
+        OutboxEntry& e = _outbox[i];
+
+        if (e.retry_count >= LP_MAX_RETRIES) {
+            e.in_use = false; // 최대 재전송 초과 → 드롭
+            continue;
+        }
+
+        bool first   = (e.retry_count == 0);
+        bool timeout = (millis() - e.last_sent_ms >= LP_ACK_TIMEOUT_MS);
+
+        if (first || timeout) {
+            _sendPublish(e.pkt);
+            e.last_sent_ms = millis();
+            e.retry_count++;
+            return; // 이번 tick에서 1개만 전송 (채널 충돌 방지)
+        }
+    }
+}
+
+uint8_t LoRaPubSub::outboxCount() const {
+    uint8_t cnt = 0;
+    for (uint8_t i = 0; i < LP_OUTBOX_SIZE; i++)
+        if (_outbox[i].in_use) cnt++;
+    return cnt;
 }

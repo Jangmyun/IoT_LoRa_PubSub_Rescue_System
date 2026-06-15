@@ -55,10 +55,24 @@ def decode_payload(packet: Mapping[str, Any]) -> dict[str, Any]:
     return {}
 
 
+def compute_relay_only(
+    state: Mapping[str, Any],
+    now: datetime,
+    sensor_raw_timeout_s: float,
+) -> bool:
+    """SENSOR_RAW를 한 번도 못 받았거나 마지막 수신 후 timeout_s 초 이상 경과하면 True."""
+    last_raw_str = state.get("last_sensor_raw_at")
+    if last_raw_str is None:
+        return True
+    age_s = (now - datetime.fromisoformat(last_raw_str)).total_seconds()
+    return age_s > sensor_raw_timeout_s
+
+
 def build_buoy_state(
     packet: Mapping[str, Any],
     previous: Mapping[str, Any] | None = None,
     now: datetime | None = None,
+    sensor_raw_timeout_s: float = 30.0,
 ) -> dict[str, Any]:
     previous = previous or {}
     now = now or datetime.now()
@@ -78,7 +92,13 @@ def build_buoy_state(
             "snr": packet.get("snr"),
         }
     )
-    state.update(decode_payload(packet))
+    decoded = decode_payload(packet)
+    state.update(decoded)
+
+    if _topic(packet) == TOPIC_SENSOR_RAW:
+        state["last_sensor_raw_at"] = now.isoformat(timespec="seconds")
+
+    state["relay_only"] = compute_relay_only(state, now, sensor_raw_timeout_s)
     return state
 
 
@@ -107,7 +127,11 @@ def build_event(
         accel = state.get("accel_ms2")
         event["text"] = f"부표 {packet['node_id']} sensor sonar={sonar}cm accel={accel}m/s2"
     elif topic == TOPIC_HEARTBEAT:
-        event["text"] = f"부표 {packet['node_id']} heartbeat battery={state.get('battery_pct')}%"
+        degraded_suffix = " (relay-only)" if state.get("relay_only") else ""
+        event["text"] = (
+            f"부표 {packet['node_id']} heartbeat battery={state.get('battery_pct')}%"
+            f"{degraded_suffix}"
+        )
     elif topic == TOPIC_ALERT:
         event["text"] = f"부표 {packet['node_id']} alert confidence={state.get('alert_confidence')}%"
     elif topic == TOPIC_ALERT_CLEAR:

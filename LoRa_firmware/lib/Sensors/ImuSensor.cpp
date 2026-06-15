@@ -6,9 +6,14 @@
 static Adafruit_MPU6050 _mpu;
 
 bool ImuSensor::begin() {
-    // AD0 핀 LOW=0x68(기본), HIGH=0x69 — 모듈에 따라 다르므로 둘 다 시도
-    if (_mpu.begin(0x68)) return true;
-    return _mpu.begin(0x69);
+    // I2C 버스가 전원 인가 직후 아직 안정화되지 않을 수 있으므로
+    // 100ms 간격으로 최대 3회 재시도한다.
+    for (uint8_t attempt = 0; attempt < 3; attempt++) {
+        if (attempt > 0) delay(100);
+        if (_mpu.begin(0x68)) return true;
+        if (_mpu.begin(0x69)) return true;
+    }
+    return false;
 }
 
 bool ImuSensor::read() {

@@ -7,6 +7,8 @@
 #define LP_MAX_RETRIES    3
 #define LP_MAX_PAYLOAD    3      // PUBLISH 페이로드 최대 바이트
 #define LP_SEEN_BUF       16     // 중복 억제 링버퍼 크기
+#define LP_OUTBOX_SIZE    4      // QoS-1 비동기 대기 슬롯 수
+#define LP_ACK_TIMEOUT_MS 800    // 단일 시도 ACK 대기 시간 (ms)
 
 // ── MSG_TYPE ───────────────────────────────────
 #define MSG_PUBLISH       0x01
@@ -60,6 +62,14 @@ struct LoRaAck {
 
 using LoRaRxCallback = void (*)(const LoRaPublish& pkt);
 
+// QoS-1 비동기 전송 큐 슬롯
+struct OutboxEntry {
+    LoRaPublish pkt;
+    uint32_t    last_sent_ms; // 0 = 미전송(첫 전송은 retry_count==0으로 판별)
+    uint8_t     retry_count;
+    bool        in_use;
+};
+
 class LoRaPubSub {
 public:
     explicit LoRaPubSub(uint8_t node_id);
@@ -74,6 +84,8 @@ public:
 
     void subscribe(uint8_t topic, LoRaRxCallback cb);
 
+    uint8_t outboxCount() const; // 현재 대기 중인 QoS-1 패킷 수 (테스트·디버그용)
+
 private:
     uint8_t  _node_id;
     uint8_t  _msg_id_counter;
@@ -87,6 +99,8 @@ private:
     SeenEntry _seen[LP_SEEN_BUF];
     uint8_t   _seen_head;
 
+    OutboxEntry _outbox[LP_OUTBOX_SIZE];
+
     uint8_t  _nextMsgId();
     uint8_t  _crc8(const uint8_t* data, uint8_t len);
     bool     _alreadySeen(uint8_t node_id, uint8_t msg_id);
@@ -95,4 +109,7 @@ private:
     void     _sendPublish(LoRaPublish& pkt);
     void     _sendRaw(const uint8_t* buf, uint8_t len);
     void     _handleIncoming(const LoRaPublish& pkt);
+    bool     _enqueue(const LoRaPublish& pkt);
+    void     _ackOutbox(uint8_t ack_msg_id);
+    void     _processOutbox();
 };

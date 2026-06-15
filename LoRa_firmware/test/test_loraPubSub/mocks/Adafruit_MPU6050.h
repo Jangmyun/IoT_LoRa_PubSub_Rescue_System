@@ -3,7 +3,7 @@
 
 class Adafruit_MPU6050 {
 public:
-    bool begin() { return false; }
+    bool begin(uint8_t /*addr*/ = 0x68) { return false; }
 
     void getEvent(sensors_event_t* accel, sensors_event_t*, sensors_event_t*) {
         accel->acceleration.x = 0.0f;

@@ -155,6 +155,20 @@
     .status-label.SUSPECT { color: var(--yellow); border: 1px solid var(--yellow); }
     .status-label.NORMAL { color: var(--green); border: 1px solid var(--green); }
 
+    .relay-badge {
+      display: inline-block;
+      margin-left: 8px;
+      padding: 2px 8px;
+      border-radius: 20px;
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      color: var(--yellow);
+      border: 1px solid var(--yellow);
+      background: var(--bg);
+    }
+    .buoy-card.relay-only { border-color: var(--yellow); }
+
     /* Event log */
     #recording-section {
       background: var(--surface);
@@ -242,7 +256,7 @@
 </head>
 <body>
 
-<div id="alert-banner">⚠ 익수자 감지 경보 발생</div>
+<div id="alert-banner">⚠ 익수 가능성 경고</div>
 
 <header>
   <h1>🌊 LoRa 해양 구조 모니터링</h1>
@@ -350,10 +364,11 @@
       card.className = 'buoy-card';
       grid.appendChild(card);
     }
-    card.className = `buoy-card ${b.status}`;
+    card.className = `buoy-card ${b.status}${b.relay_only ? ' relay-only' : ''}`;
+    const relayBadge = b.relay_only ? '<span class="relay-badge">RELAY ONLY</span>' : '';
     card.innerHTML = `
       <div class="card-header">
-        <span class="card-title">부표 ${b.node_id}</span>
+        <span class="card-title">부표 ${b.node_id}${relayBadge}</span>
         <span class="status-dot ${b.status}"></span>
       </div>
       <div class="stat">마지막 수신 <span>${b.last_seen}</span></div>
@@ -371,7 +386,7 @@
           <span class="value">${formatNumber(b.battery_pct, 0, '%')}</span>
         </div>
         <div class="metric">
-          <span class="label">Alert</span>
+          <span class="label">Warning</span>
           <span class="value">${formatNumber(b.alert_confidence, 0, '%')}</span>
         </div>
         <div class="metric">
@@ -397,19 +412,26 @@
   }
 
   function formatRisk(b) {
-    if (!b.ml_risk) return '—';
-    const confidence = b.ml_confidence != null ? ` ${Number(b.ml_confidence).toFixed(0)}%` : '';
-    return `${b.ml_risk}${confidence}`;
+    const parts = [];
+    if (b.ml_risk) {
+      const confidence = b.ml_confidence != null ? ` ${Number(b.ml_confidence).toFixed(0)}%` : '';
+      parts.push(`${b.ml_risk}${confidence}`);
+    }
+    if (b.sonar_rule_triggered) {
+      const threshold = b.sonar_rule_threshold_cm != null ? Number(b.sonar_rule_threshold_cm).toFixed(0) : '25';
+      parts.push(`SONAR<=${threshold}cm`);
+    }
+    return parts.length ? parts.join(' / ') : '—';
   }
 
   function formatStatus(status) {
     if (status === 'ALERT') return '⚠ 경보';
-    if (status === 'SUSPECT') return '주의';
-    return '● 정상';
+    if (status === 'SUSPECT') return '익수 가능성';
+    return '감지 없음';
   }
 
   function updateBanner() {
-    const anyAlert = Object.values(buoys).some(b => b.status === 'ALERT');
+    const anyAlert = Object.values(buoys).some(b => b.status === 'ALERT' || b.status === 'SUSPECT');
     banner.className = anyAlert ? 'active' : '';
   }
 

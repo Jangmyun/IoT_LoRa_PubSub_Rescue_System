@@ -11,7 +11,7 @@ import json
 from mock_data import generate_mock_packets
 from ml_inference import DEFAULT_MODEL_PATH, LiveMlClassifier
 from recorder import CsvRecorder
-from state import TOPIC_SENSOR_RAW, build_buoy_state, build_event
+from state import TOPIC_SENSOR_RAW, build_buoy_state, build_event, compute_relay_only
 
 app = FastAPI(title="LoRa Rescue Gateway Server")
 
@@ -23,8 +23,12 @@ MAX_EVENT_HISTORY = 100
 MOCK_DATA_ENABLED = os.getenv("MOCK_DATA", "1").lower() not in {"0", "false", "no", "off"}
 RECORDING_DIR = os.getenv("RECORDING_DIR", "recordings")
 ML_MODEL_PATH = os.getenv("ML_MODEL_PATH", str(DEFAULT_MODEL_PATH))
+SENSOR_RAW_TIMEOUT_S = float(os.getenv("SENSOR_RAW_TIMEOUT_S", "30"))
+ML_SUSPECT_THRESHOLD = float(os.getenv("ML_SUSPECT_THRESHOLD", "0.30"))
+SONAR_DISTANCE_THRESHOLD_CM = float(os.getenv("SONAR_DISTANCE_THRESHOLD_CM", "25"))
+SONAR_WARNING_CONFIDENCE = int(os.getenv("SONAR_WARNING_CONFIDENCE", "100"))
 recorder = CsvRecorder(RECORDING_DIR)
-ml_classifier = LiveMlClassifier(ML_MODEL_PATH)
+ml_classifier = LiveMlClassifier(ML_MODEL_PATH, suspect_threshold=ML_SUSPECT_THRESHOLD)
 
 
 # --- WebSocket connection manager ---
@@ -81,20 +85,74 @@ def _remember_event(event: dict) -> None:
     del event_history[:-MAX_EVENT_HISTORY]
 
 
+def apply_sonar_distance_rule(
+    packet: dict,
+    state: dict,
+    *,
+    threshold_cm: float = SONAR_DISTANCE_THRESHOLD_CM,
+    warning_confidence: int = SONAR_WARNING_CONFIDENCE,
+) -> bool:
+    if int(packet.get("topic", 0)) != TOPIC_SENSOR_RAW:
+        return False
+
+    previous_triggered = bool(state.get("sonar_rule_triggered"))
+    sonar = state.get("sonar_cm")
+    triggered = sonar is not None and float(sonar) <= threshold_cm
+
+    state["sonar_rule_threshold_cm"] = threshold_cm
+    state["sonar_rule_triggered"] = triggered
+    state["sonar_rule_label"] = "NEAR_OBJECT" if triggered else ""
+
+    if triggered:
+        if state.get("status") != "ALERT":
+            state["status"] = "SUSPECT"
+        state["alert_confidence"] = max(
+            int(state.get("alert_confidence") or 0),
+            warning_confidence,
+        )
+    elif previous_triggered and not _ml_is_suspect(state):
+        if state.get("status") == "SUSPECT":
+            state["status"] = "NORMAL"
+        state["alert_confidence"] = 0
+
+    return triggered
+
+
+def _ml_is_suspect(state: dict) -> bool:
+    return state.get("ml_status") in {"SUSPECT", "ALERT"}
+
+
+def _sensor_detection_text(packet: dict, state: dict, prediction) -> str:
+    parts = [f"부표 {packet['node_id']}"]
+    if prediction is not None:
+        parts.append(
+            f"ml={prediction.label} "
+            f"victim_probability={prediction.victim_probability}% "
+            f"confidence={prediction.confidence}%"
+        )
+    if state.get("sonar_rule_triggered"):
+        parts.append(
+            f"sonar<={state['sonar_rule_threshold_cm']:g}cm "
+            f"current={state.get('sonar_cm')}cm"
+        )
+    return " ".join(parts)
+
+
 def apply_packet(packet: dict, now: datetime | None = None) -> tuple[dict, dict]:
     node_id = int(packet["node_id"])
     current_time = now or datetime.now()
-    state = build_buoy_state(packet, buoy_states.get(node_id), current_time)
+    state = build_buoy_state(packet, buoy_states.get(node_id), current_time, SENSOR_RAW_TIMEOUT_S)
     prediction = ml_classifier.add_packet(packet, state, current_time)
     if prediction is not None:
         state.update(prediction.to_state())
+    sonar_triggered = apply_sonar_distance_rule(packet, state)
     event = build_event(packet, state, current_time)
-    if prediction is not None and int(packet.get("topic", 0)) == TOPIC_SENSOR_RAW:
+    if (
+        int(packet.get("topic", 0)) == TOPIC_SENSOR_RAW
+        and (prediction is not None or sonar_triggered)
+    ):
         event["level"] = state["status"]
-        event["text"] = (
-            f"부표 {packet['node_id']} ml={prediction.label} "
-            f"risk={prediction.risk} confidence={prediction.confidence}%"
-        )
+        event["text"] = _sensor_detection_text(packet, state, prediction)
     buoy_states[node_id] = state
     _remember_event(event)
     recorder.record_packet(packet, state, current_time)
@@ -119,7 +177,13 @@ async def receive_packet(packet: LoRaPacket):
 # --- REST: current buoy states ---
 @app.get("/api/buoys")
 async def get_buoys():
-    return list(buoy_states.values())
+    now = datetime.now()
+    result = []
+    for s in buoy_states.values():
+        buoy = dict(s)
+        buoy["relay_only"] = compute_relay_only(s, now, SENSOR_RAW_TIMEOUT_S)
+        result.append(buoy)
+    return result
 
 
 @app.get("/api/events")

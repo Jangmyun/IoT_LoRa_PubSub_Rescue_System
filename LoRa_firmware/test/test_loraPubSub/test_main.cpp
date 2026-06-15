@@ -278,32 +278,159 @@ void test_no_relay_when_ttl_is_one() {
     TEST_ASSERT_EQUAL_INT(0, LoRa.tx_len);
 }
 
-// 12. QoS 1 — ACK 수신 성공 → true 반환
+// 12. QoS 1 — enqueue 후 tick()에서 ACK 수신 → outbox 비워짐
 void test_qos1_succeeds_on_ack() {
     LoRaPubSub ps(NODE_BUOY_A);
     ps.begin();
 
-    // 첫 번째 publish의 msg_id는 0
+    uint8_t p[] = { 90 };
+    bool enqueued = ps.publish(TOPIC_ALERT, p, 1, /*ack_required=*/true);
+    TEST_ASSERT_TRUE(enqueued);
+    TEST_ASSERT_EQUAL_UINT8(1, ps.outboxCount());
+
+    // 첫 번째 publish의 msg_id = 0 인 ACK 주입
     LoRaAck ack{};
     ack.header.preamble = LP_PREAMBLE;
     ack.header.msg_type = MSG_ACK;
-    ack.header.node_id = NODE_PI;
-    ack.ack_msg_id = 0;
+    ack.header.node_id  = NODE_PI;
+    ack.ack_msg_id      = 0;
     LoRa.injectRx(reinterpret_cast<uint8_t*>(&ack), sizeof(LoRaAck));
 
-    uint8_t p[] = { 90 };
-    bool ok = ps.publish(TOPIC_ALERT, p, 1, /*ack_required=*/true);
-    TEST_ASSERT_TRUE(ok);
+    ps.tick(); // ACK 수신 → _ackOutbox(0) → 슬롯 해제
+    TEST_ASSERT_EQUAL_UINT8(0, ps.outboxCount());
 }
 
-// 13. QoS 1 — ACK 없음 → LP_MAX_RETRIES 후 false 반환
+// 13. QoS 1 — ACK 없음 → LP_MAX_RETRIES 소진 후 드롭
 void test_qos1_fails_on_timeout() {
     LoRaPubSub ps(NODE_BUOY_A);
     ps.begin();
 
     uint8_t p[] = { 90 };
+    bool enqueued = ps.publish(TOPIC_ALERT, p, 1, /*ack_required=*/true);
+    TEST_ASSERT_TRUE(enqueued);
+
+    // 각 tick 사이에 LP_ACK_TIMEOUT_MS(800ms) 초과분을 수동으로 경과시킨다.
+    // retry_count: 0→1 (tick1), 1→2 (tick2), 2→3 (tick3), 3>=MAX → 드롭 (tick4)
+    ps.tick();             // 첫 전송 (retry_count 0→1)
+    _mock_millis += 900;
+    ps.tick();             // 타임아웃 재전송 (1→2)
+    _mock_millis += 900;
+    ps.tick();             // 타임아웃 재전송 (2→3)
+    _mock_millis += 900;
+    ps.tick();             // retry_count >= LP_MAX_RETRIES → 드롭
+
+    TEST_ASSERT_EQUAL_UINT8(0, ps.outboxCount());
+}
+
+// T14. outbox enqueue — publish() true 반환, outboxCount 증가
+void test_outbox_enqueue_returns_true() {
+    LoRaPubSub ps(NODE_BUOY_A);
+    ps.begin();
+
+    uint8_t p[] = { 80 };
     bool ok = ps.publish(TOPIC_ALERT, p, 1, /*ack_required=*/true);
-    TEST_ASSERT_FALSE(ok);
+    TEST_ASSERT_TRUE(ok);
+    TEST_ASSERT_EQUAL_UINT8(1, ps.outboxCount());
+}
+
+// T15. outbox 가득 참 → publish() false 반환
+void test_outbox_full_returns_false() {
+    LoRaPubSub ps(NODE_BUOY_A);
+    ps.begin();
+
+    uint8_t p[] = { 80 };
+    for (uint8_t i = 0; i < LP_OUTBOX_SIZE; i++) {
+        bool ok = ps.publish(TOPIC_ALERT, p, 1, /*ack_required=*/true);
+        TEST_ASSERT_TRUE(ok);
+    }
+    TEST_ASSERT_EQUAL_UINT8(LP_OUTBOX_SIZE, ps.outboxCount());
+
+    bool overflow = ps.publish(TOPIC_ALERT, p, 1, /*ack_required=*/true);
+    TEST_ASSERT_FALSE(overflow);
+    TEST_ASSERT_EQUAL_UINT8(LP_OUTBOX_SIZE, ps.outboxCount());
+}
+
+// T16. 첫 tick()에서 outbox 패킷이 실제로 전송된다
+void test_outbox_sends_on_first_tick() {
+    LoRaPubSub ps(NODE_BUOY_A);
+    ps.begin();
+
+    uint8_t p[] = { 90 };
+    ps.publish(TOPIC_ALERT, p, 1, /*ack_required=*/true);
+
+    LoRa.reset(); // publish 중 beginPacket으로 쌓인 tx 초기화
+    ps.tick();    // _processOutbox → _sendPublish 호출 기대
+
+    TEST_ASSERT_GREATER_THAN(0, LoRa.tx_len);
+    auto* sent = reinterpret_cast<LoRaPublish*>(LoRa.tx_buf);
+    TEST_ASSERT_EQUAL_HEX8(TOPIC_ALERT, sent->topic);
+    TEST_ASSERT_EQUAL_UINT8(90, sent->payload[0]);
+}
+
+// T17. ACK 수신 시 outbox 슬롯이 해제된다
+void test_outbox_cleared_on_ack() {
+    LoRaPubSub ps(NODE_BUOY_A);
+    ps.begin();
+
+    uint8_t p[] = { 90 };
+    ps.publish(TOPIC_ALERT, p, 1, /*ack_required=*/true);
+    ps.tick(); // 전송 (retry_count 0→1)
+
+    LoRaAck ack{};
+    ack.header.preamble = LP_PREAMBLE;
+    ack.header.msg_type = MSG_ACK;
+    ack.header.node_id  = NODE_PI;
+    ack.ack_msg_id      = 0;
+    LoRa.injectRx(reinterpret_cast<uint8_t*>(&ack), sizeof(LoRaAck));
+
+    ps.tick(); // ACK 처리 → 슬롯 해제
+    TEST_ASSERT_EQUAL_UINT8(0, ps.outboxCount());
+}
+
+// T18. ACK 없이 재전송 후 LP_MAX_RETRIES 초과 시 자동 드롭
+void test_outbox_retransmits_then_drops() {
+    LoRaPubSub ps(NODE_BUOY_A);
+    ps.begin();
+
+    uint8_t p[] = { 90 };
+    ps.publish(TOPIC_ALERT, p, 1, /*ack_required=*/true);
+
+    ps.tick();           // 첫 전송 (retry 0→1)
+    _mock_millis += 900; // 800ms 초과
+    ps.tick();           // 재전송 (1→2)
+    _mock_millis += 900;
+    ps.tick();           // 재전송 (2→3)
+    _mock_millis += 900;
+    ps.tick();           // 3 >= LP_MAX_RETRIES → 드롭
+
+    TEST_ASSERT_EQUAL_UINT8(0, ps.outboxCount());
+}
+
+// T19. 잘못된 ack_msg_id는 outbox 슬롯을 해제하지 않는다
+void test_outbox_ack_wrong_msg_id_ignored() {
+    LoRaPubSub ps(NODE_BUOY_A);
+    ps.begin();
+
+    uint8_t p[] = { 90 };
+    ps.publish(TOPIC_ALERT, p, 1, /*ack_required=*/true); // msg_id = 0
+    ps.tick(); // 전송
+
+    // 다른 msg_id로 ACK 주입
+    LoRaAck ack{};
+    ack.header.preamble = LP_PREAMBLE;
+    ack.header.msg_type = MSG_ACK;
+    ack.header.node_id  = NODE_PI;
+    ack.ack_msg_id      = 99; // 존재하지 않는 msg_id
+    LoRa.injectRx(reinterpret_cast<uint8_t*>(&ack), sizeof(LoRaAck));
+
+    ps.tick();
+    TEST_ASSERT_EQUAL_UINT8(1, ps.outboxCount()); // 슬롯 유지
+
+    // 올바른 ACK 주입
+    ack.ack_msg_id = 0;
+    LoRa.injectRx(reinterpret_cast<uint8_t*>(&ack), sizeof(LoRaAck));
+    ps.tick();
+    TEST_ASSERT_EQUAL_UINT8(0, ps.outboxCount()); // 이제 해제
 }
 
 class FakeSensor : public ISensor {
@@ -405,6 +532,12 @@ int main() {
     RUN_TEST(test_no_relay_when_ttl_is_one);
     RUN_TEST(test_qos1_succeeds_on_ack);
     RUN_TEST(test_qos1_fails_on_timeout);
+    RUN_TEST(test_outbox_enqueue_returns_true);
+    RUN_TEST(test_outbox_full_returns_false);
+    RUN_TEST(test_outbox_sends_on_first_tick);
+    RUN_TEST(test_outbox_cleared_on_ack);
+    RUN_TEST(test_outbox_retransmits_then_drops);
+    RUN_TEST(test_outbox_ack_wrong_msg_id_ignored);
     RUN_TEST(test_sensor_manager_tracks_ready_state);
     RUN_TEST(test_sensor_manager_skips_not_ready_reads);
     RUN_TEST(test_sensor_manager_publish_raw_only_ready_sensors);
