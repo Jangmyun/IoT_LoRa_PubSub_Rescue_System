@@ -83,10 +83,16 @@ def build_buoy_state(
         }
     )
     decoded = decode_payload(packet)
-    # relay_only는 한 번 True가 되면 sticky (펌웨어도 latch).
-    previous_relay_only = bool(previous.get("relay_only"))
     state.update(decoded)
-    state["relay_only"] = previous_relay_only or bool(decoded.get("relay_only", False))
+    topic = _topic(packet)
+    if topic == TOPIC_HEARTBEAT:
+        # heartbeat status 바이트가 진실의 원천 — 재부팅 후 bit0 클리어 시 즉시 해제
+        state["relay_only"] = bool(decoded.get("relay_only", False))
+    elif topic in (TOPIC_SENSOR_RAW, TOPIC_ALERT, TOPIC_ALERT_CLEAR):
+        # 강등 노드는 이 토픽을 송신하지 않으므로, 수신 자체가 정상화 증거
+        state["relay_only"] = False
+    else:
+        state["relay_only"] = bool(previous.get("relay_only"))
     return state
 
 

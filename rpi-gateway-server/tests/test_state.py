@@ -58,7 +58,7 @@ class StateTests(unittest.TestCase):
         self.assertEqual(state["accel_ms2"], 12.4)
         self.assertFalse(state["relay_only"])
 
-    def test_heartbeat_degraded_bit_sets_relay_only_and_latches(self):
+    def test_heartbeat_degraded_bit_sets_relay_only(self):
         degraded_hb = {
             "node_id": 3,
             "msg_type": "PUBLISH",
@@ -69,16 +69,44 @@ class StateTests(unittest.TestCase):
         state = build_buoy_state(degraded_hb, previous=None, now=NOW)
         self.assertTrue(state["relay_only"])
 
-        # heartbeat가 아닌 후속 패킷에서도 sticky하게 유지된다.
-        relay_pkt = {
+    def test_relay_only_clears_on_normal_heartbeat(self):
+        """재부팅 후 HB_STATUS_DEGRADED 비트가 해제된 heartbeat → relay_only 즉시 해제"""
+        degraded_state = {"relay_only": True, "status": "NORMAL"}
+        normal_hb = {
             "node_id": 3,
-            "msg_type": "RELAY",
+            "msg_type": "PUBLISH",
+            "topic": TOPIC_HEARTBEAT,
+            "ttl": 3,
+            "payload": [80, 0x00],
+        }
+        state = build_buoy_state(normal_hb, degraded_state, now=NOW)
+        self.assertFalse(state["relay_only"])
+
+    def test_relay_only_clears_on_sensor_raw(self):
+        """SENSOR_RAW 수신 = 센서 정상 동작 증거 → relay_only 해제"""
+        degraded_state = {"relay_only": True, "status": "NORMAL"}
+        sensor_pkt = {
+            "node_id": 3,
+            "msg_type": "PUBLISH",
             "topic": TOPIC_SENSOR_RAW,
-            "ttl": 2,
+            "ttl": 3,
             "payload": [40, 100],
         }
-        next_state = build_buoy_state(relay_pkt, state, now=NOW)
-        self.assertTrue(next_state["relay_only"])
+        state = build_buoy_state(sensor_pkt, degraded_state, now=NOW)
+        self.assertFalse(state["relay_only"])
+
+    def test_relay_only_persists_on_unknown_topic(self):
+        """heartbeat·센서 토픽이 아닌 패킷은 relay_only 상태를 변경하지 않는다"""
+        degraded_state = {"relay_only": True, "status": "NORMAL"}
+        cmd_pkt = {
+            "node_id": 3,
+            "msg_type": "PUBLISH",
+            "topic": 0x30,
+            "ttl": 3,
+            "payload": [],
+        }
+        state = build_buoy_state(cmd_pkt, degraded_state, now=NOW)
+        self.assertTrue(state["relay_only"])
 
     def test_alert_and_clear_change_status(self):
         alert_packet = {
