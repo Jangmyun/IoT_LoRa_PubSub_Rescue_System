@@ -9,8 +9,9 @@ from pydantic import BaseModel
 import json
 
 from mock_data import generate_mock_packets
+from ml_inference import DEFAULT_MODEL_PATH, LiveMlClassifier
 from recorder import CsvRecorder
-from state import build_buoy_state, build_event
+from state import TOPIC_SENSOR_RAW, build_buoy_state, build_event
 
 app = FastAPI(title="LoRa Rescue Gateway Server")
 
@@ -21,7 +22,9 @@ event_history: list[dict] = []
 MAX_EVENT_HISTORY = 100
 MOCK_DATA_ENABLED = os.getenv("MOCK_DATA", "1").lower() not in {"0", "false", "no", "off"}
 RECORDING_DIR = os.getenv("RECORDING_DIR", "recordings")
+ML_MODEL_PATH = os.getenv("ML_MODEL_PATH", str(DEFAULT_MODEL_PATH))
 recorder = CsvRecorder(RECORDING_DIR)
+ml_classifier = LiveMlClassifier(ML_MODEL_PATH)
 
 
 # --- WebSocket connection manager ---
@@ -82,7 +85,16 @@ def apply_packet(packet: dict, now: datetime | None = None) -> tuple[dict, dict]
     node_id = int(packet["node_id"])
     current_time = now or datetime.now()
     state = build_buoy_state(packet, buoy_states.get(node_id), current_time)
+    prediction = ml_classifier.add_packet(packet, state, current_time)
+    if prediction is not None:
+        state.update(prediction.to_state())
     event = build_event(packet, state, current_time)
+    if prediction is not None and int(packet.get("topic", 0)) == TOPIC_SENSOR_RAW:
+        event["level"] = state["status"]
+        event["text"] = (
+            f"부표 {packet['node_id']} ml={prediction.label} "
+            f"risk={prediction.risk} confidence={prediction.confidence}%"
+        )
     buoy_states[node_id] = state
     _remember_event(event)
     recorder.record_packet(packet, state, current_time)
@@ -99,6 +111,7 @@ async def receive_packet(packet: LoRaPacket):
         "event": event,
         "raw": packet.model_dump(),
         "recording": recorder.status(),
+        "ml": ml_classifier.status(),
     })
     return {"ok": True}
 
@@ -117,6 +130,11 @@ async def get_events():
 @app.get("/api/recording")
 async def get_recording_status():
     return recorder.status()
+
+
+@app.get("/api/ml")
+async def get_ml_status():
+    return ml_classifier.status()
 
 
 @app.post("/api/recording/start")
@@ -152,6 +170,7 @@ async def websocket_endpoint(ws: WebSocket):
         "buoys": list(buoy_states.values()),
         "events": event_history,
         "recording": recorder.status(),
+        "ml": ml_classifier.status(),
     }, ensure_ascii=False))
     try:
         while True:

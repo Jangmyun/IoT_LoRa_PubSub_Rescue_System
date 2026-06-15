@@ -31,7 +31,9 @@ class ModelingTests(unittest.TestCase):
                 "random_forest",
                 "hist_gradient_boosting",
             })
+            self.assertGreaterEqual(int(result.metrics.iloc[0]["cv_folds"]), 2)
             self.assertEqual(result.bundle["feature_config"]["window_seconds"], 2.0)
+            self.assertGreaterEqual(result.bundle["cv_folds"], 2)
 
     def test_prediction_keeps_rule_based_sensor_fault(self):
         raw = make_synthetic_measurements(minutes=9.0)

@@ -18,6 +18,7 @@
 #   LOG_LEVEL          gateway Python 로그 레벨  (기본: INFO)
 #   SERVER_LOG_LEVEL   uvicorn 로그 레벨         (기본: WARNING)
 #   MOCK_DATA          (기본: 0, 1/true/yes/on이면 활성화)
+#   ML_MODEL_PATH      실시간 판별용 joblib 모델 경로
 #
 # 종료 동작:
 #   - Ctrl+C(SIGINT) 또는 SIGTERM → 두 프로세스 모두 정상 종료

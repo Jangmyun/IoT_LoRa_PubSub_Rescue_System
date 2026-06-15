@@ -102,6 +102,26 @@ python detection_ml_v1/prepare_labeled_dataset.py \
 python detection_ml_v1/train.py --csv detection_ml_v1/example_data/lake_labeled.csv
 ```
 
+특정 부표만 가까운 시나리오는 `PATH=LABEL@BUOY_ID` 형식으로 해당 node만 사용합니다.
+
+```bash
+python detection_ml_v1/prepare_labeled_dataset.py \
+  --run detection_ml_v1/tests/csv_result_002_idle.csv=0 \
+  --run detection_ml_v1/tests/csv_result_003_wave.csv=1 \
+  --run detection_ml_v1/tests/csv_result_004_victim.csv=2@2 \
+  --trim-start-seconds 5 \
+  --trim-end-seconds 2 \
+  --output detection_ml_v1/example_data/bath_labeled_buoy_b.csv
+
+python detection_ml_v1/train.py \
+  --csv detection_ml_v1/example_data/bath_labeled_buoy_b.csv \
+  --output-dir detection_ml_v1/artifacts/bath_buoy_b_cv_v1 \
+  --cv-folds 5
+```
+
+`train.py`는 기본적으로 stratified 5-fold cross-validation으로 후보 모델을 비교하고,
+선택된 모델을 전체 feature window로 다시 학습해 `model.joblib`에 저장합니다.
+
 Gateway 웹 UI의 `Start CSV` / `Stop` 버튼으로 저장한 파일은 기본적으로
 `rpi-gateway-server/server/recordings/csv_result_001.csv` 형식으로 생성됩니다.
 현재 LoRa raw publish 간격이 길다면 2초 window보다 긴 window로 학습합니다.
