@@ -11,7 +11,7 @@ import json
 from mock_data import generate_mock_packets
 from ml_inference import DEFAULT_MODEL_PATH, LiveMlClassifier
 from recorder import CsvRecorder
-from state import TOPIC_SENSOR_RAW, build_buoy_state, build_event
+from state import TOPIC_SENSOR_RAW, build_buoy_state, build_event, compute_relay_only
 
 app = FastAPI(title="LoRa Rescue Gateway Server")
 
@@ -23,6 +23,7 @@ MAX_EVENT_HISTORY = 100
 MOCK_DATA_ENABLED = os.getenv("MOCK_DATA", "1").lower() not in {"0", "false", "no", "off"}
 RECORDING_DIR = os.getenv("RECORDING_DIR", "recordings")
 ML_MODEL_PATH = os.getenv("ML_MODEL_PATH", str(DEFAULT_MODEL_PATH))
+SENSOR_RAW_TIMEOUT_S = float(os.getenv("SENSOR_RAW_TIMEOUT_S", "30"))
 ML_SUSPECT_THRESHOLD = float(os.getenv("ML_SUSPECT_THRESHOLD", "0.30"))
 SONAR_DISTANCE_THRESHOLD_CM = float(os.getenv("SONAR_DISTANCE_THRESHOLD_CM", "25"))
 SONAR_WARNING_CONFIDENCE = int(os.getenv("SONAR_WARNING_CONFIDENCE", "100"))
@@ -140,7 +141,7 @@ def _sensor_detection_text(packet: dict, state: dict, prediction) -> str:
 def apply_packet(packet: dict, now: datetime | None = None) -> tuple[dict, dict]:
     node_id = int(packet["node_id"])
     current_time = now or datetime.now()
-    state = build_buoy_state(packet, buoy_states.get(node_id), current_time)
+    state = build_buoy_state(packet, buoy_states.get(node_id), current_time, SENSOR_RAW_TIMEOUT_S)
     prediction = ml_classifier.add_packet(packet, state, current_time)
     if prediction is not None:
         state.update(prediction.to_state())
@@ -176,7 +177,13 @@ async def receive_packet(packet: LoRaPacket):
 # --- REST: current buoy states ---
 @app.get("/api/buoys")
 async def get_buoys():
-    return list(buoy_states.values())
+    now = datetime.now()
+    result = []
+    for s in buoy_states.values():
+        buoy = dict(s)
+        buoy["relay_only"] = compute_relay_only(s, now, SENSOR_RAW_TIMEOUT_S)
+        result.append(buoy)
+    return result
 
 
 @app.get("/api/events")

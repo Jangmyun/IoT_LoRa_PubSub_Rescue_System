@@ -7,9 +7,6 @@ TOPIC_ALERT_CLEAR = 0x11
 TOPIC_HEARTBEAT = 0x20
 TOPIC_SENSOR_RAW = 0x21
 
-# Heartbeat status 바이트 비트 정의 (펌웨어 main.cpp와 동기화)
-HB_STATUS_DEGRADED = 0x01
-
 
 def _payload(packet: Mapping[str, Any]) -> list[int]:
     value = packet.get("payload") or []
@@ -47,7 +44,6 @@ def decode_payload(packet: Mapping[str, Any]) -> dict[str, Any]:
             decoded["battery_pct"] = payload[0]
         if len(payload) >= 2:
             decoded["device_status"] = payload[1]
-            decoded["relay_only"] = bool(payload[1] & HB_STATUS_DEGRADED)
         return decoded
 
     if topic == TOPIC_ALERT:
@@ -59,10 +55,24 @@ def decode_payload(packet: Mapping[str, Any]) -> dict[str, Any]:
     return {}
 
 
+def compute_relay_only(
+    state: Mapping[str, Any],
+    now: datetime,
+    sensor_raw_timeout_s: float,
+) -> bool:
+    """SENSOR_RAW를 한 번도 못 받았거나 마지막 수신 후 timeout_s 초 이상 경과하면 True."""
+    last_raw_str = state.get("last_sensor_raw_at")
+    if last_raw_str is None:
+        return True
+    age_s = (now - datetime.fromisoformat(last_raw_str)).total_seconds()
+    return age_s > sensor_raw_timeout_s
+
+
 def build_buoy_state(
     packet: Mapping[str, Any],
     previous: Mapping[str, Any] | None = None,
     now: datetime | None = None,
+    sensor_raw_timeout_s: float = 30.0,
 ) -> dict[str, Any]:
     previous = previous or {}
     now = now or datetime.now()
@@ -84,15 +94,11 @@ def build_buoy_state(
     )
     decoded = decode_payload(packet)
     state.update(decoded)
-    topic = _topic(packet)
-    if topic == TOPIC_HEARTBEAT:
-        # heartbeat status 바이트가 진실의 원천 — 재부팅 후 bit0 클리어 시 즉시 해제
-        state["relay_only"] = bool(decoded.get("relay_only", False))
-    elif topic in (TOPIC_SENSOR_RAW, TOPIC_ALERT, TOPIC_ALERT_CLEAR):
-        # 강등 노드는 이 토픽을 송신하지 않으므로, 수신 자체가 정상화 증거
-        state["relay_only"] = False
-    else:
-        state["relay_only"] = bool(previous.get("relay_only"))
+
+    if _topic(packet) == TOPIC_SENSOR_RAW:
+        state["last_sensor_raw_at"] = now.isoformat(timespec="seconds")
+
+    state["relay_only"] = compute_relay_only(state, now, sensor_raw_timeout_s)
     return state
 
 
