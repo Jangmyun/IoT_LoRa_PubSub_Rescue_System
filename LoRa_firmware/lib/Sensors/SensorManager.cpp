@@ -16,17 +16,6 @@ uint8_t SensorManager::beginAll() {
     return ready;
 }
 
-uint8_t SensorManager::retryFailed() {
-    uint8_t newly_ready = 0;
-    for (uint8_t i = 0; i < _count; i++) {
-        if (!_ready[i]) {
-            _ready[i] = _sensors[i]->begin();
-            if (_ready[i]) newly_ready++;
-        }
-    }
-    return newly_ready;
-}
-
 uint8_t SensorManager::readAll() {
     uint8_t read_ok = 0;
     for (uint8_t i = 0; i < _count; i++) {
