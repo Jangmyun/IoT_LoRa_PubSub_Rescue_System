@@ -130,6 +130,14 @@
 - **FR-5.2** 평상시에는 짧은 주기로 센서만 측정하고, 교란 감지 시에만 LoRa를 송신하여 평균 소비 전류를 낮춘다.
 - **FR-5.3** 송신 빈도와 샘플링 주기는 설정 가능한 파라미터로 둔다.
 
+### 6.6 센서 고장 대응 (Relay-only 강등)
+
+- **FR-6.1** 부표 노드는 가속도·초음파 두 센서 중 한 개 이상에서 초기화 실패 또는 연속 read 실패(임계: `SENSOR_FAULT_THRESHOLD`, 기본 5회)를 감지하면 **relay 전용 모드로 강등(latch)** 된다.
+- **FR-6.2** 강등된 노드는 자체 센서 read·CSV 로깅·`TOPIC_SENSOR_RAW`·`TOPIC_ALERT` 송신을 모두 중단한다.
+- **FR-6.3** 강등된 노드는 `TOPIC_HEARTBEAT` 송신과 멀티홉 RELAY 처리는 계속 수행하여 네트워크 토폴로지에 기여한다.
+- **FR-6.4** 강등 상태는 `TOPIC_HEARTBEAT` payload의 `status` 바이트 bit0(`HB_STATUS_DEGRADED = 0x01`)에 표시한다. 패킷 포맷·길이는 변경되지 않는다.
+- **FR-6.5** 강등 상태는 재부팅 전까지 유지된다(자동 복귀 없음, 안전 우선).
+
 ---
 
 ## 7. 비기능 요구사항 (Non-Functional Requirements)
@@ -206,6 +214,7 @@
 | 가변 길이 패킷 조립 | `LoRaPubSub.cpp` | 페이로드 길이만큼만 송수신, CRC 위치 동적 계산 |
 | Mock 기반 유닛테스트 (13개) | `test/test_loraPubSub/` | native 환경, 하드웨어 불필요 |
 | 노드별 NODE_ID 빌드 변경 용이성 | `src/main.cpp` | 단일 매크로 변경으로 A/B/C 빌드 분리 |
+| Relay-only 강등 로직 (FR-6) | `src/main.cpp` | 센서 begin/연속 read 실패 감지 → latch, heartbeat status bit0로 표시 |
 
 ### 13.2 완료 — 센서 드라이버 및 하드웨어 (LoRa_firmware/lib/Sensors, diagram.json)
 
@@ -247,6 +256,7 @@ PRD의 원안 `[version | type | topic_len | topic | payload_len | payload | crc
 - **node_id + msg_id 추가**: 브로커 없는 환경에서 중복 억제와 ACK 매칭에 필수
 - **preamble 추가 (0xAB)**: LoRa 수신 시 노이즈 패킷 1차 필터링
 - **가변 길이 송신**: 페이로드 실제 사용량만 송신, CRC 위치는 `pld_len` 기반으로 동적 계산
+- **HEARTBEAT status 바이트 비트 정의**: bit0 = `HB_STATUS_DEGRADED(0x01)` — 센서 고장 강등 노드 식별용. payload 길이(`battery 1B + status 1B`) 변동 없음.
 
 ### 13.5 하드웨어 변경 사항 (PRD §5 대비)
 
