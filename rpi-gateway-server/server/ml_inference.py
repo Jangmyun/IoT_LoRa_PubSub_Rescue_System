@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ML_PACKAGE_ROOT = REPO_ROOT / "detection_ml_v1"
-DEFAULT_MODEL_PATH = ML_PACKAGE_ROOT / "artifacts" / "bath_all_buoys_cv_v1" / "model.joblib"
+DEFAULT_MODEL_PATH = ML_PACKAGE_ROOT / "models" / "bath_all_buoys_cv_v1" / "model.joblib"
 
 if str(ML_PACKAGE_ROOT) not in sys.path:
     sys.path.insert(0, str(ML_PACKAGE_ROOT))
@@ -72,11 +72,14 @@ class LiveMlClassifier:
         self.samples: dict[int, deque[dict[str, Any]]] = defaultdict(
             lambda: deque(maxlen=max_samples_per_node)
         )
-        feature_config = self.bundle.get("feature_config", {})
-        self.config = DetectionFeatureConfig(**feature_config) if feature_config else DetectionFeatureConfig(
-            window_seconds=10.0,
-            stride_seconds=5.0,
-        )
+        if self.bundle is None:
+            self.config = DetectionFeatureConfig(window_seconds=10.0, stride_seconds=5.0)
+        else:
+            feature_config = self.bundle.get("feature_config", {})
+            self.config = DetectionFeatureConfig(**feature_config) if feature_config else DetectionFeatureConfig(
+                window_seconds=10.0,
+                stride_seconds=5.0,
+            )
 
     @property
     def enabled(self) -> bool:

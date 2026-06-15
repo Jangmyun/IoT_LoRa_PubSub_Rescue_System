@@ -24,6 +24,12 @@ class FakeModel:
 
 
 class LiveMlClassifierTests(unittest.TestCase):
+    def test_missing_model_path_disables_classifier_without_crashing(self):
+        classifier = LiveMlClassifier(model_path="/tmp/does-not-exist/model.joblib")
+
+        self.assertFalse(classifier.enabled)
+        self.assertEqual(classifier.status()["enabled"], False)
+
     def test_predicts_latest_sensor_window_and_maps_alert_status(self):
         classifier = LiveMlClassifier(
             bundle={
