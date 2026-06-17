@@ -21,11 +21,12 @@ LoRa 물리 계층 위에 TCP와 중앙 broker 없이 동작하는 경량 pub/su
 
 해수욕장, 호수, 항만처럼 WiFi나 셀룰러 인프라가 부족한 수면 환경에서는 원거리 상시 감시가 어렵습니다. 이 프로젝트는 초음파 센서와 가속도 센서를 탑재한 부표 여러 개를 배치하고, 부표가 감지한 위험 수면 교란을 LoRa 멀티홉으로 Raspberry Pi 수신국까지 전달합니다.
 
-핵심 목표는 기성 MQTT broker를 사용하는 것이 아니라, LoRa의 64 bytes FIFO 제약과 TCP 부재를 고려해 MQTT의 pub/sub 개념을 직접 재설계하는 것입니다.
+핵심 목표는 기성 MQTT broker를 사용하는 것이 아니라, LoRa의 64 bytes FIFO 제약과 TCP 부재를 고려해 MQTT의 pub/sub 개념을 직접 재설계하는 것입니다. TTGO LoRa32 펌웨어는 PlatformIO 기반으로 빌드/업로드합니다.
 
 ## 핵심 기능
 
 - TTGO LoRa32 기반 부표 노드에서 sonar, IMU 센서 샘플 수집
+- PlatformIO 기반 ESP32 펌웨어 빌드, 업로드, native 단위 테스트
 - LoRa 위에서 동작하는 최대 11 bytes 경량 pub/sub 패킷 구현
 - TTL과 `(node_id, msg_id)` 기반 멀티홉 relay 및 중복 억제
 - Raspberry Pi 게이트웨이에서 Serial 수신, broker dispatch, HTTP forward 처리
@@ -34,32 +35,7 @@ LoRa 물리 계층 위에 TCP와 중앙 broker 없이 동작하는 경량 pub/su
 
 ## 시스템 아키텍처
 
-```mermaid
-flowchart TD
-    subgraph Buoy["Buoy Layer"]
-        A["Buoy A<br/>ESP32 + LoRa<br/>Sonar + IMU"]
-        B["Buoy B<br/>ESP32 + LoRa<br/>Sonar + IMU"]
-        C["Buoy C<br/>ESP32 + LoRa<br/>Sonar + IMU"]
-    end
-
-    subgraph Gateway["Gateway Layer"]
-        G["TTGO Gateway<br/>LoRa RX + ACK"]
-        R["Raspberry Pi<br/>Serial Reader + Broker"]
-    end
-
-    subgraph App["Application Layer"]
-        S["FastAPI Server<br/>REST + WebSocket + ML"]
-        D["Web Dashboard<br/>Buoy Status + Events"]
-    end
-
-    A -. "relay" .-> B
-    B -. "relay" .-> C
-    B --> G
-    C --> G
-    G --> R
-    R --> S
-    S --> D
-```
+![System Architecture](./docs/assets/SystemArcitecture.png)
 
 ## 데이터 흐름
 
@@ -94,6 +70,46 @@ PRD 초기안보다 더 작은 고정 토픽 구조로 확정했습니다.
 | [`detection_ml_v1`](./detection_ml_v1) | 센서 CSV 수집, 라벨 데이터 준비, scikit-learn 학습/평가 |
 | [`docs`](./docs) | 탐지 알고리즘 설계 문서와 설명용 그래프 |
 | [`PRD.md`](./PRD.md) | 프로젝트 요구사항, 제약사항, 구현 현황 정리 |
+
+## PlatformIO 설치 및 사용
+
+이 프로젝트의 `LoRa_firmware`는 PlatformIO 프로젝트입니다. `platformio.ini`에서 TTGO LoRa32 부표 펌웨어, 게이트웨이 펌웨어, native 테스트 환경을 나누어 관리합니다.
+
+설치 방법은 둘 중 편한 방식을 사용합니다.
+
+```bash
+# macOS Homebrew
+brew install platformio
+
+# 또는 Python pip
+python3 -m pip install -U platformio
+
+# 설치 확인
+pio --version
+```
+
+VS Code를 사용한다면 Extension에서 `PlatformIO IDE`를 설치해도 됩니다. 이 경우 PlatformIO Core가 IDE에 포함되어 있고, PlatformIO 터미널에서 `pio` 명령을 사용할 수 있습니다.
+
+자주 쓰는 명령:
+
+```bash
+cd LoRa_firmware
+
+# 부표 펌웨어 빌드
+pio run -e ttgo-lora32-v21
+
+# 부표 펌웨어 업로드
+pio run -e ttgo-lora32-v21 --target upload
+
+# 게이트웨이 TTGO 펌웨어 업로드
+pio run -e gateway --target upload
+
+# Serial monitor
+pio device monitor -b 115200
+
+# LoRaPubSub native 테스트
+pio test -e native
+```
 
 ## 빠른 실행
 
