@@ -118,3 +118,5 @@ dmypy.json
 .pyre/
 
 # End of https://www.toptal.com/developers/gitignore/api/arduino,vscode,macos,linux,python
+
+!test_set_eval_v1/
